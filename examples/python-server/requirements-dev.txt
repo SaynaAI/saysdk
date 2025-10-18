@@ -1,0 +1,7 @@
+# Development dependencies for Sayna FastAPI Example
+# Generated from pyproject.toml
+
+-r requirements.txt
+
+ruff>=0.6.0
+mypy>=1.8.0

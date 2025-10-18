@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  verdaccio:
+    image: verdaccio/verdaccio:latest
+    container_name: verdaccio
+    ports:
+      - "4873:4873"
+    volumes:
+      - verdaccio_data:/verdaccio/storage
+      - verdaccio_config:/verdaccio/conf
+    environment:
+      - VERDACCIO_PORT=4873
+    restart: unless-stopped
+
+volumes:
+  verdaccio_data:
+  verdaccio_config:

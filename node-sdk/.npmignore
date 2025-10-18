@@ -1,0 +1,45 @@
+# Source files
+src/
+*.ts
+!*.d.ts
+
+# Config files
+tsconfig.json
+eslint.config.js
+.prettierrc
+.prettierignore
+build.ts
+
+# Development files
+.vscode/
+.idea/
+.DS_Store
+
+# Tests
+**/*.test.js
+**/*.spec.js
+**/*.test.ts
+**/*.spec.ts
+coverage/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# Cache
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# Lock files (optional - include if you want users to have exact versions)
+# bun.lock
+# package-lock.json
+# yarn.lock

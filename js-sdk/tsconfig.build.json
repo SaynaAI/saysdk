@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+    "allowImportingTsExtensions": false,
+    "outDir": "./dist",
+    "sourceMap": true,
+    "inlineSources": true,
+    "module": "ESNext",
+    "target": "ES2019"
+  },
+  "include": ["index.ts"]
+}

@@ -1,5 +1,5 @@
 {
-  "name": "@sayna/js-sdk",
+  "name": "@sayna-ai/js-sdk",
   "version": "0.0.1",
   "description": "Browser SDK for connecting Sayna clients to real-time voice rooms.",
   "main": "./dist/index.js",
@@ -26,7 +26,7 @@
     "clean": "rm -rf dist",
     "build": "bun run clean && bun x tsc -p tsconfig.build.json",
     "typecheck": "bun x tsc --noEmit",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run typecheck && bun run build"
   },
   "type": "module",
   "dependencies": {

@@ -1,6 +1,6 @@
 # @sayna/js-sdk
 
-Sayna’s JavaScript SDK makes it easy to request access tokens, join voice rooms, and manage microphone publishing directly from the browser. It hides the low-level wiring so product teams can focus on interface and experience.
+[Sayna AI](https://sayna.ai) JavaScript SDK makes it easy to request access tokens, join voice rooms, and manage microphone publishing directly from the browser. It hides the low-level wiring so product teams can focus on interface and experience.
 
 ## Features
 
@@ -12,7 +12,8 @@ Sayna’s JavaScript SDK makes it easy to request access tokens, join voice room
 ## Installation
 
 ```bash
-bun install @sayna/js-sdk
+# npm, yarn, pnpm, bun, deno
+npm install @sayna-ai/js-sdk
 ```
 
 The package is delivered as an ES module for modern browsers.
@@ -20,7 +21,7 @@ The package is delivered as an ES module for modern browsers.
 ## Usage
 
 ```ts
-import { SaynaClient } from "@sayna/js-sdk";
+import { SaynaClient } from "@sayna-ai/js-sdk";
 
 const client = new SaynaClient({
   tokenUrl: "/sayna/token",

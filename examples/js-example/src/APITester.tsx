@@ -87,16 +87,15 @@ export function APITester() {
       const client = new SaynaClient({
         tokenFetchHandler: async () => {
           const tokenUrl = new URL("/sayna/token", window.location.origin);
-          tokenUrl.searchParams.set("saynaUrl", parsedUrl.toString());
-          tokenUrl.searchParams.set("room", resolvedRoom);
     
           // Add participant name if provided
           const trimmedParticipantName = participantName.trim();
     
           const tokenRes = await fetch(tokenUrl.toString(), { method: "GET", body: JSON.stringify({
-            room_name: resolvedRoom,
-            participant_name: trimmedParticipantName,
-            participant_identity: `user-${crypto.randomUUID()}`,
+            saynaUrl: parsedUrl.toString(),
+            room: resolvedRoom,
+            participantName: trimmedParticipantName,
+            participantIdentity: `user-${crypto.randomUUID()}`,
           }) });
           const tokenJson = await tokenRes.json();
           setTokenResponse(JSON.stringify(tokenJson, null, 2));

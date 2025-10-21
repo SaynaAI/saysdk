@@ -129,28 +129,18 @@ function badRequest(message: string): Response {
 export async function handleSaynaTokenRequest(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
-    const saynaUrl = url.searchParams.get("saynaUrl");
+    const body = await request.json();
+    const saynaUrl = body?.saynaUrl;
     if (!saynaUrl) {
-      return badRequest("Missing query parameter: saynaUrl");
+      return badRequest("Missing request body: saynaUrl");
     }
 
-    let parsed: URL;
-    try {
-      parsed = new URL(saynaUrl);
-    } catch {
-      return badRequest("saynaUrl must be a valid absolute URL");
-    }
-
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      return badRequest("saynaUrl must use http or https");
-    }
-
-    const roomName = url.searchParams.get("room") ?? `sayna-room-${randomUUID()}`;
-    const participantName = url.searchParams.get("participantName") ?? "Web User";
-    const participantIdentity = url.searchParams.get("participantIdentity") ?? `user-${randomUUID()}`;
+    const roomName = body?.room ?? `sayna-room-${randomUUID()}`;
+    const participantName = body?.participantName ?? "Web User";
+    const participantIdentity = body?.participantIdentity ?? `user-${randomUUID()}`;
 
     // Create a temporary client just to get the LiveKit token
-    const tempClient = new SaynaClient(parsed.toString(), sttConfig, ttsConfig);
+    const tempClient = new SaynaClient(saynaUrl, sttConfig, ttsConfig);
 
     try {
       // Use the REST API to get LiveKit token for the user
@@ -162,7 +152,7 @@ export async function handleSaynaTokenRequest(request: Request): Promise<Respons
 
       // Now establish the Sayna session with the agent's identity
       const agentIdentity = `sayna-agent-${randomUUID()}`;
-      await ensureSaynaSession(parsed.toString(), roomName, agentIdentity);
+      await ensureSaynaSession(saynaUrl, roomName, agentIdentity);
 
       return new Response(
         JSON.stringify({

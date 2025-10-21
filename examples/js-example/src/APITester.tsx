@@ -1,4 +1,4 @@
-import { SaynaClient } from "@sayna/js-sdk";
+import { SaynaClient } from "@sayna-ai/js-sdk";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,7 +71,9 @@ export function APITester() {
 
       const submittedRoom = roomName.trim();
       const resolvedRoom =
-        submittedRoom.length > 0 ? submittedRoom : generatedRoomRef.current ?? `ui-room-${crypto.randomUUID()}`;
+        submittedRoom.length > 0
+          ? submittedRoom
+          : generatedRoomRef.current ?? `ui-room-${crypto.randomUUID()}`;
 
       if (!submittedRoom) {
         generatedRoomRef.current = resolvedRoom;
@@ -80,33 +82,35 @@ export function APITester() {
 
       setStatus("Requesting access token...");
 
-      const tokenUrl = new URL("/sayna/token", window.location.origin);
-      tokenUrl.searchParams.set("saynaUrl", parsedUrl.toString());
-      tokenUrl.searchParams.set("room", resolvedRoom);
-
-      // Add participant name if provided
-      const trimmedParticipantName = participantName.trim();
-      if (trimmedParticipantName) {
-        tokenUrl.searchParams.set("participantName", trimmedParticipantName);
-      }
-
-      const tokenRes = await fetch(tokenUrl.toString(), { method: "GET" });
-      const tokenJson = await tokenRes.json();
-      setTokenResponse(JSON.stringify(tokenJson, null, 2));
-
-      if (!tokenRes.ok) {
-        const errorText = typeof tokenJson?.error === "string" ? tokenJson.error : tokenRes.statusText;
-        throw new Error(errorText || "Failed to retrieve token from server.");
-      }
-
-      if (typeof tokenJson?.token !== "string" || typeof tokenJson?.liveUrl !== "string") {
-        throw new Error("Token response is missing required token or liveUrl fields.");
-      }
-
       setStatus("Connecting to LiveKit...");
 
       const client = new SaynaClient({
-        tokenUrl: tokenUrl.toString(),
+        tokenFetchHandler: async () => {
+          const tokenUrl = new URL("/sayna/token", window.location.origin);
+          tokenUrl.searchParams.set("saynaUrl", parsedUrl.toString());
+          tokenUrl.searchParams.set("room", resolvedRoom);
+    
+          // Add participant name if provided
+          const trimmedParticipantName = participantName.trim();
+    
+          const tokenRes = await fetch(tokenUrl.toString(), { method: "GET", body: JSON.stringify({
+            room_name: resolvedRoom,
+            participant_name: trimmedParticipantName,
+            participant_identity: `user-${crypto.randomUUID()}`,
+          }) });
+          const tokenJson = await tokenRes.json();
+          setTokenResponse(JSON.stringify(tokenJson, null, 2));
+    
+          if (!tokenRes.ok) {
+            const errorText =
+              typeof tokenJson?.error === "string"
+                ? tokenJson.error
+                : tokenRes.statusText;
+            throw new Error(errorText || "Failed to retrieve token from server.");
+          }
+
+          return tokenJson;
+        },
         audioElement: audioRef.current ?? undefined,
         enableAudioPlayback: true,
       });
@@ -122,9 +126,13 @@ export function APITester() {
         setStatus(`Connected to ${resolvedRoomName}. Microphone is live.`);
       } catch (microphoneError) {
         console.warn("Failed to enable microphone:", microphoneError);
-        setStatus(`Connected to ${resolvedRoomName}, but microphone access was not granted.`);
+        setStatus(
+          `Connected to ${resolvedRoomName}, but microphone access was not granted.`
+        );
         setErrorMessage(
-          microphoneError instanceof Error ? microphoneError.message : String(microphoneError),
+          microphoneError instanceof Error
+            ? microphoneError.message
+            : String(microphoneError)
         );
       }
     } catch (error) {
@@ -144,10 +152,7 @@ export function APITester() {
 
   return (
     <div className="flex flex-col gap-6">
-      <form
-        onSubmit={handleConnect}
-        className="flex flex-col gap-4"
-      >
+      <form onSubmit={handleConnect} className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="sayna-url">Sayna URL</Label>
@@ -156,7 +161,7 @@ export function APITester() {
               type="url"
               placeholder="https://dev-api.sayna.ai"
               value={saynaUrl}
-              onChange={event => setSaynaUrl(event.target.value)}
+              onChange={(event) => setSaynaUrl(event.target.value)}
               required
               disabled={isConnecting || isConnected}
             />
@@ -169,7 +174,7 @@ export function APITester() {
               type="text"
               placeholder="Web User (optional)"
               value={participantName}
-              onChange={event => setParticipantName(event.target.value)}
+              onChange={(event) => setParticipantName(event.target.value)}
               disabled={isConnecting || isConnected}
             />
           </div>
@@ -183,7 +188,7 @@ export function APITester() {
               type="text"
               placeholder="Autogenerated if empty"
               value={roomName}
-              onChange={event => setRoomName(event.target.value)}
+              onChange={(event) => setRoomName(event.target.value)}
               disabled={isConnecting || isConnected}
             />
           </div>
@@ -193,7 +198,11 @@ export function APITester() {
               {isConnecting ? "Connecting..." : "Connect"}
             </Button>
           ) : (
-            <Button type="button" variant="destructive" onClick={handleDisconnectClick}>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDisconnectClick}
+            >
               Disconnect
             </Button>
           )}

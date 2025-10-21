@@ -5,7 +5,7 @@ import {
   type STTConfig,
   type STTResultMessage,
   type TTSConfig,
-} from "@sayna/node-sdk";
+} from "@sayna-ai/node-sdk";
 
 const sttConfig: STTConfig = {
   provider: "deepgram",

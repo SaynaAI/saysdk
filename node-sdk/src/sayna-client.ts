@@ -396,7 +396,7 @@ export class SaynaClient {
           error: response.statusText,
         }));
         throw new SaynaServerError(
-          errorData.error || `Request failed: ${response.status} ${response.statusText}`
+          errorData?.error ?? `Request failed: ${response.status} ${response.statusText}`
         );
       }
 

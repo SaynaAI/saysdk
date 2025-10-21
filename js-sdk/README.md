@@ -35,6 +35,17 @@ await client.publishMicrophone();
 await client.disconnect();
 ```
 
+If you already have custom token logic, provide a `tokenFetchHandler` instead of `tokenUrl`:
+
+```ts
+const client = new SaynaClient({
+  tokenFetchHandler: async () => {
+    const response = await fetch("/sayna/token", { method: "POST" });
+    return response.json();
+  },
+});
+```
+
 ## API
 
 ### `new SaynaClient(options)`
@@ -42,10 +53,13 @@ await client.disconnect();
 | option | type | purpose |
 | --- | --- | --- |
 | `tokenUrl` | `string \| URL` | Endpoint used to retrieve access tokens; relative paths resolve against `window.location`. |
+| `tokenFetchHandler` | `() => Promise<TokenResponse>` | Custom function used to fetch tokens. Overrides `tokenUrl` when provided. |
 | `audioElement` | `HTMLAudioElement` | Existing element to attach remote audio playback. |
 | `enableAudioPlayback` | `boolean` | Toggle automatic playback support (defaults to `true`). |
 
 `TokenResponse` must include a `token` string and a `liveUrl` string provided by your backend.
+
+Either `tokenUrl` or `tokenFetchHandler` is required when creating a client.
 
 ### `await client.connect(options?)`
 

@@ -17,7 +17,8 @@ export interface TokenResponse {
 }
 
 export interface SaynaClientOptions {
-  tokenUrl: string | URL;
+  tokenUrl?: string | URL;
+  tokenFetchHandler?: () => Promise<TokenResponse>;
   audioElement?: HTMLAudioElement;
   enableAudioPlayback?: boolean;
 }
@@ -27,7 +28,6 @@ export interface SaynaClientOptions {
  */
 export class SaynaClient {
   private room: Room | null = null;
-  private readonly fetchImpl: typeof fetch;
   private readonly enableAudioPlayback: boolean;
   private isConnecting = false;
   private audioElement: HTMLAudioElement | null;
@@ -66,20 +66,10 @@ export class SaynaClient {
   };
 
   constructor(private readonly options: SaynaClientOptions) {
-    if (!options.tokenUrl) {
-      throw new Error("SaynaClient requires a tokenUrl.");
+    if (!options.tokenUrl && !options.tokenFetchHandler) {
+      throw new Error("SaynaClient requires a tokenUrl or tokenFetchHandler");
     }
 
-    const fetchImpl =
-      typeof fetch !== "undefined" ? fetch.bind(globalThis) : undefined;
-
-    if (!fetchImpl) {
-      throw new Error(
-        "Fetch API is not available in this environment. Provide fetchImplementation in SaynaClientOptions."
-      );
-    }
-
-    this.fetchImpl = fetchImpl;
     this.enableAudioPlayback = options.enableAudioPlayback ?? true;
     this.audioElement = options.audioElement ?? null;
   }
@@ -189,34 +179,49 @@ export class SaynaClient {
   }
 
   private async resolveToken(): Promise<TokenResponse> {
-    const requestUrl = this.toAbsoluteUrl(this.options.tokenUrl);
+    let tokenResponse: TokenResponse;
+    if (typeof this.options.tokenFetchHandler === "function") {
+      tokenResponse = await this.options.tokenFetchHandler();
+    } else if (this.options.tokenUrl) {
+      const requestUrl = this.toAbsoluteUrl(this.options.tokenUrl);
+      const response = await fetch(requestUrl.toString(), { method: "GET" });
 
-    const response = await this.fetchImpl(requestUrl.toString(), {
-      method: "GET",
-    });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({
+          error: response.statusText,
+        }));
+        throw new Error(
+          errorData.error ||
+            `Request failed: ${response.status} ${response.statusText}`
+        );
+      }
 
-    if (!response.ok) {
-      throw new Error(
-        `SaynaClient: token request failed with status ${response.status} ${response.statusText}`
-      );
+      tokenResponse = (await response.json()) as TokenResponse;
+    } else {
+      throw new Error("SaynaClient: tokenUrl or tokenFetchHandler is required.");
     }
 
-    const data = (await response.json()) as TokenResponse;
-    if (!data || typeof data !== "object") {
+    if (!tokenResponse || typeof tokenResponse !== "object") {
       throw new Error("SaynaClient: token response is not a valid object.");
     }
 
-    if (!("token" in data) || typeof data.token !== "string") {
+    if (
+      !("token" in tokenResponse) ||
+      typeof tokenResponse.token !== "string"
+    ) {
       throw new Error("SaynaClient: token response is missing a token string.");
     }
 
-    if (!("liveUrl" in data) || typeof data.liveUrl !== "string") {
+    if (
+      !("liveUrl" in tokenResponse) ||
+      typeof tokenResponse.liveUrl !== "string"
+    ) {
       throw new Error(
         "SaynaClient: token response is missing a liveUrl string."
       );
     }
 
-    return data;
+    return tokenResponse;
   }
 
   private ensureAudioElement(): HTMLAudioElement | null {

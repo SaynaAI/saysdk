@@ -1,6 +1,6 @@
 {
   "name": "@sayna-ai/js-sdk",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Browser SDK for connecting Sayna clients to real-time voice rooms.",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

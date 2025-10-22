@@ -10,17 +10,49 @@ from sayna_client import (
 )
 
 
+def _get_test_stt_config() -> STTConfig:
+    """Helper to create a test STT config."""
+    return STTConfig(
+        provider="deepgram",
+        model="nova-2",
+        language="en-US",
+        sample_rate=16000,
+        channels=1,
+        encoding="linear16",
+        punctuation=True,
+    )
+
+
+def _get_test_tts_config() -> TTSConfig:
+    """Helper to create a test TTS config."""
+    return TTSConfig(
+        provider="cartesia",
+        voice_id="test-voice",
+        model="sonic",
+        audio_format="pcm_s16le",
+        sample_rate=16000,
+        speaking_rate=1.0,
+        connection_timeout=5000,
+        request_timeout=10000,
+        pronunciations=[],
+    )
+
+
 class TestSaynaClientInit:
     """Tests for SaynaClient initialization."""
 
     def test_client_initialization(self) -> None:
-        """Test that client can be initialized with URL and API key."""
+        """Test that client can be initialized with URL, configs, and API key."""
         client = SaynaClient(
-            url="wss://api.example.com",
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
             api_key="test-api-key",
         )
-        assert client.url == "wss://api.example.com"
+        assert client.url == "https://api.example.com"
         assert client.api_key == "test-api-key"
+        assert client.stt_config.provider == "deepgram"
+        assert client.tts_config.provider == "cartesia"
         assert not client.connected
         assert not client.ready
 
@@ -28,43 +60,50 @@ class TestSaynaClientInit:
         """Test client with custom WebSocket URL."""
         client = SaynaClient(
             url="wss://custom.sayna.com/ws",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
             api_key="key-123",
         )
         assert client.url == "wss://custom.sayna.com/ws"
 
     def test_client_base_url_extraction_wss(self) -> None:
         """Test that base URL is correctly extracted from WebSocket URL."""
-        client = SaynaClient(url="wss://api.example.com/ws")
+        client = SaynaClient(
+            url="wss://api.example.com/ws",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
         assert client.base_url == "https://api.example.com"
 
     def test_client_base_url_extraction_ws(self) -> None:
         """Test that base URL is correctly extracted from insecure WebSocket URL."""
-        client = SaynaClient(url="ws://localhost:3000/ws")
+        client = SaynaClient(
+            url="ws://localhost:3000/ws",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
         assert client.base_url == "http://localhost:3000"
+
+    def test_client_validates_url(self) -> None:
+        """Test that client validates URL format."""
+        with pytest.raises(SaynaValidationError, match="URL must start with"):
+            SaynaClient(
+                url="invalid-url",
+                stt_config=_get_test_stt_config(),
+                tts_config=_get_test_tts_config(),
+            )
 
 
 class TestSaynaClientValidation:
     """Tests for SaynaClient validation."""
 
     @pytest.mark.asyncio
-    async def test_connect_requires_stt_tts_when_audio_enabled(self) -> None:
-        """Test that connect raises ValidationError when audio=True but configs missing."""
-        client = SaynaClient(
-            url="wss://api.example.com",
-            api_key="test-key",
-        )
-
-        # Should raise validation error when audio=True but configs are missing
-        with pytest.raises(SaynaValidationError) as exc_info:
-            await client.connect()
-
-        assert "stt_config and tts_config are required" in str(exc_info.value)
-
-    @pytest.mark.asyncio
     async def test_disconnect_when_not_connected(self) -> None:
         """Test that disconnect handles not being connected gracefully."""
         client = SaynaClient(
-            url="wss://api.example.com",
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
             api_key="test-key",
         )
 
@@ -77,7 +116,11 @@ class TestSaynaClientProperties:
 
     def test_initial_state(self) -> None:
         """Test initial state of client properties."""
-        client = SaynaClient(url="wss://api.example.com")
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
 
         assert not client.connected
         assert not client.ready
@@ -89,9 +132,9 @@ class TestSaynaClientProperties:
 
 # TODO: Add integration tests with mock WebSocket server:
 # - Test WebSocket connection with valid config
-# - Test message sending (speak, clear, send_message)
+# - Test WebSocket message sending (speak, clear, tts_flush, send_message, on_audio_input)
 # - Test message receiving (ready, stt_result, error, etc.)
-# - Test event callbacks
+# - Test event callbacks (register_on_tts_audio, register_on_stt_result, etc.)
 # - Test error handling and reconnection
 # - Test proper cleanup on disconnect
-# - Test REST API methods (health_check, get_voices, speak, get_livekit_token)
+# - Test REST API methods (health, get_voices, speak_rest, get_livekit_token)

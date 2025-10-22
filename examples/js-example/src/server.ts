@@ -128,16 +128,19 @@ function badRequest(message: string): Response {
 
 export async function handleSaynaTokenRequest(request: Request): Promise<Response> {
   try {
-    const url = new URL(request.url);
     const body = await request.json();
     const saynaUrl = body?.saynaUrl;
     if (!saynaUrl) {
       return badRequest("Missing request body: saynaUrl");
     }
 
+    console.log("[Sayna] Token request - Body:", body);
+
     const roomName = body?.room ?? `sayna-room-${randomUUID()}`;
     const participantName = body?.participantName ?? "Web User";
     const participantIdentity = body?.participantIdentity ?? `user-${randomUUID()}`;
+
+    console.log("[Sayna] Token request - URL:", saynaUrl, "Room:", roomName, "Participant:", participantName, "Identity:", participantIdentity);
 
     // Create a temporary client just to get the LiveKit token
     const tempClient = new SaynaClient(saynaUrl, sttConfig, ttsConfig);

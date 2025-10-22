@@ -87,25 +87,31 @@ export function APITester() {
       const client = new SaynaClient({
         tokenFetchHandler: async () => {
           const tokenUrl = new URL("/sayna/token", window.location.origin);
-    
+
           // Add participant name if provided
           const trimmedParticipantName = participantName.trim();
-    
-          const tokenRes = await fetch(tokenUrl.toString(), { method: "GET", body: JSON.stringify({
-            saynaUrl: parsedUrl.toString(),
-            room: resolvedRoom,
-            participantName: trimmedParticipantName,
-            participantIdentity: `user-${crypto.randomUUID()}`,
-          }) });
+
+          const tokenRes = await fetch(tokenUrl.toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              saynaUrl: parsedUrl.toString(),
+              room: resolvedRoom,
+              participantName: trimmedParticipantName ?? 'Web User',
+              participantIdentity: `user-${crypto.randomUUID()}`,
+            }),
+          });
           const tokenJson = await tokenRes.json();
           setTokenResponse(JSON.stringify(tokenJson, null, 2));
-    
+
           if (!tokenRes.ok) {
             const errorText =
               typeof tokenJson?.error === "string"
                 ? tokenJson.error
                 : tokenRes.statusText;
-            throw new Error(errorText || "Failed to retrieve token from server.");
+            throw new Error(
+              errorText || "Failed to retrieve token from server."
+            );
           }
 
           return tokenJson;

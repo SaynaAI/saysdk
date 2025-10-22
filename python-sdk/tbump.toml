@@ -1,0 +1,26 @@
+[version]
+current = "0.0.4"
+
+# Regex for parsing version
+regex = '''
+  (?P<major>\d+)
+  \.
+  (?P<minor>\d+)
+  \.
+  (?P<patch>\d+)
+  '''
+
+[git]
+message_template = "Bump version to {new_version}"
+tag_template = "python-v{new_version}"
+push = false  # Don't auto-push, let user control this
+
+# Files to update when bumping version
+[[file]]
+src = "pyproject.toml"
+search = 'version = "{current_version}"'
+
+[[file]]
+src = "src/sayna_client/__init__.py"
+search = '__version__ = "{current_version}"'
+

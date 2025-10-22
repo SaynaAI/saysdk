@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import warnings
 from typing import Any, Callable, Optional
 
 import aiohttp
@@ -49,31 +50,66 @@ class SaynaClient:
 
     Example:
         ```python
+        from sayna_client import SaynaClient, STTConfig, TTSConfig
+
+        # Initialize client with configs
         client = SaynaClient(
-            url="wss://api.sayna.com/ws",
+            url="https://api.sayna.ai",
+            stt_config=STTConfig(provider="deepgram", model="nova-2"),
+            tts_config=TTSConfig(provider="cartesia", voice_id="example-voice"),
             api_key="your-api-key"
         )
 
-        # REST API
+        # REST API (no WebSocket connection required)
+        health = await client.health()
         voices = await client.get_voices()
-        audio_data = await client.speak("Hello, world!", tts_config)
 
-        # WebSocket API
-        await client.connect(stt_config, tts_config, livekit_config)
-        await client.send_speak("Hello!")
+        # WebSocket API (requires connection)
+        client.register_on_stt_result(lambda result: print(result.transcript))
+        client.register_on_tts_audio(lambda audio: print(f"Received {len(audio)} bytes"))
+
+        await client.connect()
+        await client.speak("Hello, world!")
         await client.disconnect()
         ```
     """
 
-    def __init__(self, url: str, api_key: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        url: str,
+        stt_config: STTConfig,
+        tts_config: TTSConfig,
+        livekit_config: Optional[LiveKitConfig] = None,
+        without_audio: bool = False,
+        api_key: Optional[str] = None,
+    ) -> None:
         """Initialize the Sayna client.
 
         Args:
-            url: WebSocket server URL (e.g., 'wss://api.sayna.com/ws')
+            url: Sayna server URL (e.g., 'https://api.sayna.ai' or 'wss://api.sayna.com/ws')
+            stt_config: Speech-to-text provider configuration
+            tts_config: Text-to-speech provider configuration
+            livekit_config: Optional LiveKit room configuration
+            without_audio: If True, disables audio streaming (default: False)
             api_key: Optional API key for authentication
+
+        Raises:
+            SaynaValidationError: If URL or configurations are invalid
         """
+        # Validate URL
+        if not url or not isinstance(url, str):
+            raise SaynaValidationError("URL must be a non-empty string")
+        if not url.startswith(("http://", "https://", "ws://", "wss://")):
+            raise SaynaValidationError(
+                "URL must start with http://, https://, ws://, or wss://"
+            )
+
         self.url = url
         self.api_key = api_key
+        self.stt_config = stt_config
+        self.tts_config = tts_config
+        self.livekit_config = livekit_config
+        self.without_audio = without_audio
 
         # Extract base URL for REST API
         if url.startswith("ws://") or url.startswith("wss://"):
@@ -151,7 +187,7 @@ class SaynaClient:
     # REST API Methods
     # ============================================================================
 
-    async def health_check(self) -> HealthResponse:
+    async def health(self) -> HealthResponse:
         """Check server health status.
 
         Returns:
@@ -159,9 +195,32 @@ class SaynaClient:
 
         Raises:
             SaynaServerError: If the server returns an error
+
+        Example:
+            >>> health = await client.health()
+            >>> print(health.status)  # "OK"
         """
         data = await self._http_client.get("/")
         return HealthResponse(**data)
+
+    async def health_check(self) -> HealthResponse:
+        """Check server health status.
+
+        .. deprecated::
+            Use :meth:`health` instead. This method will be removed in a future version.
+
+        Returns:
+            HealthResponse with status field
+
+        Raises:
+            SaynaServerError: If the server returns an error
+        """
+        warnings.warn(
+            "health_check() is deprecated, use health() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.health()
 
     async def get_voices(self) -> dict[str, list[VoiceDescriptor]]:
         """Retrieve the catalogue of text-to-speech voices grouped by provider.
@@ -171,6 +230,11 @@ class SaynaClient:
 
         Raises:
             SaynaServerError: If the server returns an error
+
+        Example:
+            >>> voices = await client.get_voices()
+            >>> for provider, voice_list in voices.items():
+            ...     print(f"{provider}:", [v.name for v in voice_list])
         """
         data = await self._http_client.get("/voices")
         # Parse the voice catalog
@@ -179,8 +243,10 @@ class SaynaClient:
             voices_by_provider[provider] = [VoiceDescriptor(**v) for v in voice_list]
         return voices_by_provider
 
-    async def speak(self, text: str, tts_config: TTSConfig) -> tuple[bytes, dict[str, str]]:
+    async def speak_rest(self, text: str, tts_config: TTSConfig) -> tuple[bytes, dict[str, str]]:
         """Synthesize text to speech using REST API.
+
+        This is a standalone synthesis method that doesn't require an active WebSocket connection.
 
         Args:
             text: Text to convert to speech
@@ -193,6 +259,10 @@ class SaynaClient:
         Raises:
             SaynaValidationError: If text is empty
             SaynaServerError: If synthesis fails
+
+        Example:
+            >>> audio_data, headers = await client.speak_rest("Hello, world!", tts_config)
+            >>> print(f"Received {len(audio_data)} bytes of {headers['Content-Type']}")
         """
         request = SpeakRequest(text=text, tts_config=tts_config)
         return await self._http_client.post_binary("/speak", json_data=request.model_dump())
@@ -229,31 +299,28 @@ class SaynaClient:
     # WebSocket Connection Management
     # ============================================================================
 
-    async def connect(
-        self,
-        stt_config: Optional[STTConfig] = None,
-        tts_config: Optional[TTSConfig] = None,
-        livekit_config: Optional[LiveKitConfig] = None,
-        audio: bool = True,
-    ) -> None:
-        """Connect to the Sayna WebSocket server and send config message.
+    async def connect(self) -> None:
+        """Establishes connection to the Sayna WebSocket server.
 
-        Args:
-            stt_config: Speech-to-text configuration (required if audio=True)
-            tts_config: Text-to-speech configuration (required if audio=True)
-            livekit_config: Optional LiveKit configuration
-            audio: Whether to enable audio streaming (default: True)
+        Sends initial configuration and waits for the ready message.
 
         Raises:
             SaynaConnectionError: If connection fails
-            SaynaValidationError: If config is invalid
+
+        Returns:
+            Promise that resolves when the connection is ready
         """
         if self._connected:
             logger.warning("Already connected to Sayna WebSocket")
             return
 
-        if audio and (stt_config is None or tts_config is None):
-            raise SaynaValidationError("stt_config and tts_config are required when audio=True")
+        # Convert HTTP(S) URL to WebSocket URL if needed
+        ws_url = self.url
+        if ws_url.startswith("http://") or ws_url.startswith("https://"):
+            ws_url = ws_url.replace("https://", "wss://").replace("http://", "ws://")
+            # Add /ws endpoint if not present
+            if not ws_url.endswith("/ws"):
+                ws_url = ws_url + "/ws" if not ws_url.endswith("/") else ws_url + "ws"
 
         try:
             # Create session with headers
@@ -264,16 +331,16 @@ class SaynaClient:
             self._session = aiohttp.ClientSession(headers=headers)
 
             # Connect to WebSocket
-            self._ws = await self._session.ws_connect(self.url)
+            self._ws = await self._session.ws_connect(ws_url)
             self._connected = True
-            logger.info("Connected to Sayna WebSocket: %s", self.url)
+            logger.info("Connected to Sayna WebSocket: %s", ws_url)
 
             # Send config message
             config = ConfigMessage(
-                audio=audio,
-                stt_config=stt_config,
-                tts_config=tts_config,
-                livekit=livekit_config,
+                audio=not self.without_audio,
+                stt_config=self.stt_config,
+                tts_config=self.tts_config,
+                livekit=self.livekit_config,
             )
             await self._send_json(config.model_dump(exclude_none=True))
 
@@ -326,6 +393,32 @@ class SaynaClient:
     # WebSocket Sending Methods
     # ============================================================================
 
+    async def speak(
+        self,
+        text: str,
+        flush: bool = True,
+        allow_interruption: bool = True,
+    ) -> None:
+        """Send text to be synthesized as speech via WebSocket.
+
+        Args:
+            text: Text to synthesize
+            flush: Whether to flush the TTS queue before speaking (default: True)
+            allow_interruption: Whether this speech can be interrupted (default: True)
+
+        Raises:
+            SaynaNotConnectedError: If not connected
+            SaynaNotReadyError: If not ready
+            SaynaValidationError: If text is not a string
+
+        Example:
+            >>> await client.speak("Hello, world!")
+            >>> await client.speak("Important message", flush=True, allow_interruption=False)
+        """
+        self._check_ready()
+        message = SpeakMessage(text=text, flush=flush, allow_interruption=allow_interruption)
+        await self._send_json(message.model_dump(exclude_none=True))
+
     async def send_speak(
         self,
         text: str,
@@ -333,6 +426,9 @@ class SaynaClient:
         allow_interruption: bool = True,
     ) -> None:
         """Queue text for TTS synthesis via WebSocket.
+
+        .. deprecated::
+            Use :meth:`speak` instead. This method will be removed in a future version.
 
         Args:
             text: Text to synthesize
@@ -343,12 +439,15 @@ class SaynaClient:
             SaynaNotConnectedError: If not connected
             SaynaNotReadyError: If not ready
         """
-        self._check_ready()
-        message = SpeakMessage(text=text, flush=flush, allow_interruption=allow_interruption)
-        await self._send_json(message.model_dump(exclude_none=True))
+        warnings.warn(
+            "send_speak() is deprecated, use speak() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.speak(text, flush, allow_interruption)
 
-    async def send_clear(self) -> None:
-        """Clear queued TTS audio and reset LiveKit audio buffers.
+    async def clear(self) -> None:
+        """Clear the text-to-speech queue.
 
         Raises:
             SaynaNotConnectedError: If not connected
@@ -357,6 +456,38 @@ class SaynaClient:
         self._check_ready()
         message = ClearMessage()
         await self._send_json(message.model_dump(exclude_none=True))
+
+    async def tts_flush(self, allow_interruption: bool = True) -> None:
+        """Flush the TTS queue by sending an empty speak command.
+
+        Args:
+            allow_interruption: Whether the flush can be interrupted (default: True)
+
+        Raises:
+            SaynaNotConnectedError: If not connected
+            SaynaNotReadyError: If not ready
+
+        Example:
+            >>> await client.tts_flush()
+        """
+        await self.speak("", flush=True, allow_interruption=allow_interruption)
+
+    async def send_clear(self) -> None:
+        """Clear queued TTS audio and reset LiveKit audio buffers.
+
+        .. deprecated::
+            Use :meth:`clear` instead. This method will be removed in a future version.
+
+        Raises:
+            SaynaNotConnectedError: If not connected
+            SaynaNotReadyError: If not ready
+        """
+        warnings.warn(
+            "send_clear() is deprecated, use clear() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.clear()
 
     async def send_message(
         self,
@@ -381,8 +512,29 @@ class SaynaClient:
         msg = SendMessageMessage(message=message, role=role, topic=topic, debug=debug)
         await self._send_json(msg.model_dump(exclude_none=True))
 
+    async def on_audio_input(self, audio_data: bytes) -> None:
+        """Send audio data to the server for speech recognition.
+
+        Args:
+            audio_data: Raw audio bytes matching the STT config
+
+        Raises:
+            SaynaNotConnectedError: If not connected
+            SaynaNotReadyError: If not ready
+            SaynaValidationError: If audio_data is invalid
+
+        Example:
+            >>> await client.on_audio_input(audio_bytes)
+        """
+        self._check_ready()
+        if self._ws:
+            await self._ws.send_bytes(audio_data)
+
     async def send_audio(self, audio_data: bytes) -> None:
         """Send raw audio data to the STT pipeline.
+
+        .. deprecated::
+            Use :meth:`on_audio_input` instead. This method will be removed in a future version.
 
         Args:
             audio_data: Raw audio bytes matching the STT config
@@ -391,9 +543,12 @@ class SaynaClient:
             SaynaNotConnectedError: If not connected
             SaynaNotReadyError: If not ready
         """
-        self._check_ready()
-        if self._ws:
-            await self._ws.send_bytes(audio_data)
+        warnings.warn(
+            "send_audio() is deprecated, use on_audio_input() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.on_audio_input(audio_data)
 
     # ============================================================================
     # Event Registration
@@ -427,9 +582,34 @@ class SaynaClient:
         """Register callback for TTS playback complete events."""
         self._on_tts_playback_complete = callback
 
-    def register_on_audio(self, callback: Callable[[bytes], Any]) -> None:
-        """Register callback for audio data events (TTS output)."""
+    def register_on_tts_audio(self, callback: Callable[[bytes], Any]) -> None:
+        """Register a callback for text-to-speech audio data.
+
+        Args:
+            callback: Function to call when TTS audio is received
+
+        Example:
+            >>> def handle_audio(audio_data: bytes):
+            ...     print(f"Received {len(audio_data)} bytes of audio")
+            >>> client.register_on_tts_audio(handle_audio)
+        """
         self._on_audio = callback
+
+    def register_on_audio(self, callback: Callable[[bytes], Any]) -> None:
+        """Register callback for audio data events (TTS output).
+
+        .. deprecated::
+            Use :meth:`register_on_tts_audio` instead. This method will be removed in a future version.
+
+        Args:
+            callback: Function to call when audio data is received
+        """
+        warnings.warn(
+            "register_on_audio() is deprecated, use register_on_tts_audio() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.register_on_tts_audio(callback)
 
     # ============================================================================
     # Internal Methods

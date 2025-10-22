@@ -11,3 +11,8 @@ mypy>=1.8.0
 
 # Linting and formatting
 ruff>=0.6.0
+
+# Versioning and publishing
+tbump
+build
+twine

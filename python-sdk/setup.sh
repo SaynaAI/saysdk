@@ -107,13 +107,23 @@ case $choice in
         echo "Activating virtual environment..."
         source .venv/bin/activate
 
+        # Ensure pip is available in the venv
+        if ! command -v pip &> /dev/null; then
+            echo "⚠️  pip not found in venv, installing..."
+            python3 -m ensurepip --upgrade || {
+                echo "❌ Error: Could not install pip using ensurepip"
+                echo "Trying alternative method..."
+                curl -sS https://bootstrap.pypa.io/get-pip.py | python3
+            }
+        fi
+
         # Upgrade pip
         echo "Upgrading pip..."
-        pip install --upgrade pip
+        python3 -m pip install --upgrade pip
 
         # Install package in editable mode with dev dependencies
         echo "Installing package and dependencies..."
-        pip install -e ".[dev]"
+        python3 -m pip install -e ".[dev]"
 
         echo ""
         echo "✅ Setup complete with pip!"

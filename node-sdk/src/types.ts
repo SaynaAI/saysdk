@@ -78,10 +78,10 @@ export interface ConfigMessage {
   type: "config";
   /** Whether audio streaming is enabled */
   audio?: boolean;
-  /** Speech-to-text configuration */
-  stt_config: STTConfig;
-  /** Text-to-speech configuration */
-  tts_config: TTSConfig;
+  /** Speech-to-text configuration (required when audio=true) */
+  stt_config?: STTConfig;
+  /** Text-to-speech configuration (required when audio=true) */
+  tts_config?: TTSConfig;
   /** Optional LiveKit room configuration */
   livekit?: LiveKitConfig;
 }

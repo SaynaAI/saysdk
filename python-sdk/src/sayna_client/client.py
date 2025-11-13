@@ -77,8 +77,8 @@ class SaynaClient:
     def __init__(
         self,
         url: str,
-        stt_config: STTConfig,
-        tts_config: TTSConfig,
+        stt_config: Optional[STTConfig] = None,
+        tts_config: Optional[TTSConfig] = None,
         livekit_config: Optional[LiveKitConfig] = None,
         without_audio: bool = False,
         api_key: Optional[str] = None,
@@ -87,14 +87,14 @@ class SaynaClient:
 
         Args:
             url: Sayna server URL (e.g., 'https://api.sayna.ai' or 'wss://api.sayna.com/ws')
-            stt_config: Speech-to-text provider configuration
-            tts_config: Text-to-speech provider configuration
+            stt_config: Speech-to-text provider configuration (required when without_audio=False)
+            tts_config: Text-to-speech provider configuration (required when without_audio=False)
             livekit_config: Optional LiveKit room configuration
             without_audio: If True, disables audio streaming (default: False)
             api_key: Optional API key for authentication
 
         Raises:
-            SaynaValidationError: If URL or configurations are invalid
+            SaynaValidationError: If URL is invalid or if audio configs are missing when audio is enabled
         """
         # Validate URL
         if not url or not isinstance(url, str):
@@ -103,6 +103,14 @@ class SaynaClient:
             raise SaynaValidationError(
                 "URL must start with http://, https://, ws://, or wss://"
             )
+
+        # Validate audio config requirements
+        if not without_audio:
+            if stt_config is None or tts_config is None:
+                raise SaynaValidationError(
+                    "stt_config and tts_config are required when without_audio=False (audio streaming enabled). "
+                    "Either provide both configs or set without_audio=True for non-audio use cases."
+                )
 
         self.url = url
         self.api_key = api_key

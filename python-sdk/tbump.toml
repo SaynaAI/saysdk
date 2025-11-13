@@ -13,7 +13,6 @@ regex = '''
 [git]
 message_template = "Bump version to {new_version}"
 tag_template = "python-v{new_version}"
-push = false  # Don't auto-push, let user control this
 
 # Files to update when bumping version
 [[file]]

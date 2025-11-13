@@ -86,8 +86,8 @@ export type TTSPlaybackCompleteHandler = (
  */
 export class SaynaClient {
   private url: string;
-  private sttConfig: STTConfig;
-  private ttsConfig: TTSConfig;
+  private sttConfig?: STTConfig;
+  private ttsConfig?: TTSConfig;
   private livekitConfig?: LiveKitConfig;
   private withoutAudio: boolean;
   private websocket?: WebSocket;
@@ -110,17 +110,17 @@ export class SaynaClient {
    * Creates a new SaynaClient instance.
    *
    * @param url - The Sayna server URL (e.g., "https://api.sayna.ai")
-   * @param sttConfig - Speech-to-text configuration
-   * @param ttsConfig - Text-to-speech configuration
+   * @param sttConfig - Speech-to-text configuration (required when withoutAudio=false)
+   * @param ttsConfig - Text-to-speech configuration (required when withoutAudio=false)
    * @param livekitConfig - Optional LiveKit room configuration
    * @param withoutAudio - If true, disables audio streaming (default: false)
    *
-   * @throws {SaynaValidationError} If URL or configurations are invalid
+   * @throws {SaynaValidationError} If URL is invalid or if audio configs are missing when audio is enabled
    */
   constructor(
     url: string,
-    sttConfig: STTConfig,
-    ttsConfig: TTSConfig,
+    sttConfig?: STTConfig,
+    ttsConfig?: TTSConfig,
     livekitConfig?: LiveKitConfig,
     withoutAudio: boolean = false
   ) {
@@ -137,6 +137,16 @@ export class SaynaClient {
       throw new SaynaValidationError(
         "URL must start with http://, https://, ws://, or wss://"
       );
+    }
+
+    // Validate audio config requirements
+    if (!withoutAudio) {
+      if (!sttConfig || !ttsConfig) {
+        throw new SaynaValidationError(
+          "sttConfig and ttsConfig are required when withoutAudio=false (audio streaming enabled). " +
+          "Either provide both configs or set withoutAudio=true for non-audio use cases."
+        );
+      }
     }
 
     this.url = url;

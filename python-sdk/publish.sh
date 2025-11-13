@@ -54,8 +54,40 @@ bump_version() {
     local bump_type=$1
     check_tbump
     
-    echo -e "${YELLOW}📝 Bumping $bump_type version...${NC}"
-    tbump $bump_type --non-interactive
+    # Read current version from tbump.toml
+    local current_version=$(grep '^current = ' tbump.toml | cut -d'"' -f2)
+    if [ -z "$current_version" ]; then
+        echo -e "${RED}❌ Error: Could not read current version from tbump.toml${NC}"
+        exit 1
+    fi
+    
+    # Parse version components
+    IFS='.' read -r major minor patch <<< "$current_version"
+    
+    # Calculate new version based on bump type
+    case "$bump_type" in
+        patch)
+            patch=$((patch + 1))
+            ;;
+        minor)
+            minor=$((minor + 1))
+            patch=0
+            ;;
+        major)
+            major=$((major + 1))
+            minor=0
+            patch=0
+            ;;
+        *)
+            echo -e "${RED}❌ Error: Invalid bump type '$bump_type'${NC}"
+            exit 1
+            ;;
+    esac
+    
+    local new_version="$major.$minor.$patch"
+    
+    echo -e "${YELLOW}📝 Bumping $bump_type version from $current_version to $new_version...${NC}"
+    tbump "$new_version" --non-interactive
     echo -e "${GREEN}✅ Version bumped successfully!${NC}"
 }
 

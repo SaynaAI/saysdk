@@ -33,16 +33,16 @@
     "sdk",
     "server"
   ],
-  "author": "",
+  "author": "@sayna-ai",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/sayna/saysdk"
   },
   "bugs": {
-    "url": ""
+    "url": "https://github.com/sayna/saysdk/issues"
   },
-  "homepage": "",
+  "homepage": "https://sayna.ai",
   "engines": {
     "node": ">=18.0.0"
   },

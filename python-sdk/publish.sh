@@ -87,7 +87,7 @@ bump_version() {
     local new_version="$major.$minor.$patch"
     
     echo -e "${YELLOW}📝 Bumping $bump_type version from $current_version to $new_version...${NC}"
-    tbump "$new_version" --non-interactive
+    tbump "$new_version" --non-interactive --no-tag
     echo -e "${GREEN}✅ Version bumped successfully!${NC}"
 }
 

@@ -58,37 +58,116 @@ include = ["sayna_client*"]
 sayna_client = ["py.typed"]
 
 # Ruff configuration - Modern Python linter and formatter
+# Following best practices for open-source Python libraries
 [tool.ruff]
 target-version = "py39"
 line-length = 100
+indent-width = 4
+
+# Enable auto-fixing where safe
+fix = true
+show-fixes = true
+
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+]
 
 [tool.ruff.lint]
+# Enable comprehensive linting rules for library code quality
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
     "F",      # pyflakes
-    "I",      # isort
-    "B",      # flake8-bugbear
+    "I",      # isort (import sorting)
+    "N",      # pep8-naming
+    "D",      # pydocstyle (docstrings)
+    "UP",     # pyupgrade (modernize Python code)
+    "B",      # flake8-bugbear (likely bugs and design problems)
     "C4",     # flake8-comprehensions
-    "UP",     # pyupgrade
-    "ARG",    # flake8-unused-arguments
+    "DTZ",    # flake8-datetimez (datetime best practices)
+    "T10",    # flake8-debugger
+    "EM",     # flake8-errmsg
+    "ISC",    # flake8-implicit-str-concat
+    "ICN",    # flake8-import-conventions
+    "PIE",    # flake8-pie
+    "PT",     # flake8-pytest-style
+    "Q",      # flake8-quotes
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
     "SIM",    # flake8-simplify
     "TCH",    # flake8-type-checking
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "PGH",    # pygrep-hooks
     "PL",     # pylint
+    "TRY",    # tryceratops
     "RUF",    # ruff-specific rules
 ]
+
 ignore = [
-    "E501",   # line too long (handled by formatter)
-    "PLR0913", # too many arguments
-    "PLR2004", # magic value used in comparison
-    "RUF022", # __all__ is not sorted (we use semantic grouping)
+    # Docstring rules that conflict
+    "D203",    # 1 blank line before class docstring (conflicts with D211)
+    "D213",    # Multi-line docstring should start at second line (conflicts with D212)
+    # Formatting conflicts
+    "E501",    # Line too long (enforced by formatter)
+    "ISC001",  # Implicit string concatenation (conflicts with formatter)
+    # Exception handling - allowing inline messages for better readability
+    "EM101",   # String literals in exceptions
+    "EM102",   # F-string literals in exceptions
+    "TRY003",  # Long messages in exceptions (informative error messages are valuable)
+    # Stylistic preferences
+    "TRY300",  # Prefer explicit return over else after try
+    # Logging - keeping exception parameter for context is acceptable
+    "TRY401",  # Redundant exception in logging.exception
 ]
 
+# Minimal per-file ignores for specific use cases
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["ARG", "PLR2004"]
+"tests/**/*.py" = [
+    "D",       # Docstrings not required in tests
+    "S101",    # Assert usage is expected in tests
+    "PLR2004", # Magic values are acceptable in test assertions
+]
+"**/__init__.py" = [
+    "D104",    # Missing docstring in public package
+    "F401",    # Unused imports (re-exports)
+]
 
+# Import sorting configuration
 [tool.ruff.lint.isort]
 known-first-party = ["sayna_client"]
+force-single-line = false
+lines-after-imports = 2
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+# Docstring configuration
+[tool.ruff.lint.pydocstyle]
+convention = "google"  # Use Google-style docstrings
+
+# pylint configuration
+[tool.ruff.lint.pylint]
+max-args = 10
+max-branches = 15
+max-returns = 6
+max-statements = 50
+
+# Formatter configuration
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = 88
 
 # MyPy configuration - Static type checker
 [tool.mypy]

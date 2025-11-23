@@ -6,15 +6,11 @@ import type {
   SpeakMessage,
   ClearMessage,
   SendMessageMessage,
-  ReadyMessage,
   STTResultMessage,
   ErrorMessage,
-  MessageMessage,
-  ParticipantDisconnectedMessage,
   OutgoingMessage,
   SaynaMessage,
   Participant,
-  TTSPlaybackCompleteMessage,
   VoicesResponse,
   HealthResponse,
   LiveKitTokenResponse,
@@ -90,6 +86,7 @@ export class SaynaClient {
   private ttsConfig?: TTSConfig;
   private livekitConfig?: LiveKitConfig;
   private withoutAudio: boolean;
+  private apiKey?: string;
   private websocket?: WebSocket;
   private isConnected: boolean = false;
   private isReady: boolean = false;
@@ -114,6 +111,7 @@ export class SaynaClient {
    * @param ttsConfig - Text-to-speech configuration (required when withoutAudio=false)
    * @param livekitConfig - Optional LiveKit room configuration
    * @param withoutAudio - If true, disables audio streaming (default: false)
+   * @param apiKey - Optional API key used to authorize HTTP and WebSocket calls (defaults to SAYNA_API_KEY env)
    *
    * @throws {SaynaValidationError} If URL is invalid or if audio configs are missing when audio is enabled
    */
@@ -122,7 +120,8 @@ export class SaynaClient {
     sttConfig?: STTConfig,
     ttsConfig?: TTSConfig,
     livekitConfig?: LiveKitConfig,
-    withoutAudio: boolean = false
+    withoutAudio: boolean = false,
+    apiKey?: string
   ) {
     // Validate URL
     if (!url || typeof url !== "string") {
@@ -144,7 +143,7 @@ export class SaynaClient {
       if (!sttConfig || !ttsConfig) {
         throw new SaynaValidationError(
           "sttConfig and ttsConfig are required when withoutAudio=false (audio streaming enabled). " +
-          "Either provide both configs or set withoutAudio=true for non-audio use cases."
+            "Either provide both configs or set withoutAudio=true for non-audio use cases."
         );
       }
     }
@@ -154,6 +153,7 @@ export class SaynaClient {
     this.ttsConfig = ttsConfig;
     this.livekitConfig = livekitConfig;
     this.withoutAudio = withoutAudio;
+    this.apiKey = apiKey ?? process.env.SAYNA_API_KEY;
   }
 
   /**
@@ -177,7 +177,21 @@ export class SaynaClient {
       this.readyPromiseReject = reject;
 
       try {
-        this.websocket = new WebSocket(wsUrl);
+        const headers = this.apiKey
+          ? { Authorization: `Bearer ${this.apiKey}` }
+          : undefined;
+
+        const WebSocketConstructor = WebSocket as unknown as {
+          new (
+            url: string,
+            protocols?: string | string[],
+            options?: { headers?: Record<string, string> }
+          ): WebSocket;
+        };
+
+        this.websocket = headers
+          ? new WebSocketConstructor(wsUrl, undefined, { headers })
+          : new WebSocket(wsUrl);
 
         this.websocket.onopen = () => {
           this.isConnected = true;
@@ -223,15 +237,20 @@ export class SaynaClient {
               }
             } else {
               // JSON control messages
+              if (typeof event.data !== "string") {
+                throw new Error("Expected string data for JSON messages");
+              }
               const data = JSON.parse(event.data) as OutgoingMessage;
               await this.handleJsonMessage(data);
             }
           } catch (error) {
             // Log parse errors but don't break the connection
             if (this.errorCallback) {
+              const errorMessage =
+                error instanceof Error ? error.message : String(error);
               await this.errorCallback({
                 type: "error",
-                message: `Failed to process message: ${error instanceof Error ? error.message : String(error)}`,
+                message: `Failed to process message: ${errorMessage}`,
               });
             }
           }
@@ -273,7 +292,7 @@ export class SaynaClient {
     try {
       switch (messageType) {
         case "ready": {
-          const readyMsg = data as ReadyMessage;
+          const readyMsg = data;
           this.isReady = true;
           this._livekitRoomName = readyMsg.livekit_room_name;
           this._livekitUrl = readyMsg.livekit_url;
@@ -286,7 +305,7 @@ export class SaynaClient {
         }
 
         case "stt_result": {
-          const sttResult = data as STTResultMessage;
+          const sttResult = data;
           if (this.sttCallback) {
             await this.sttCallback(sttResult);
           }
@@ -294,7 +313,7 @@ export class SaynaClient {
         }
 
         case "error": {
-          const errorMsg = data as ErrorMessage;
+          const errorMsg = data;
           if (this.errorCallback) {
             await this.errorCallback(errorMsg);
           }
@@ -305,7 +324,7 @@ export class SaynaClient {
         }
 
         case "message": {
-          const messageData = data as MessageMessage;
+          const messageData = data;
           if (this.messageCallback) {
             await this.messageCallback(messageData.message);
           }
@@ -313,7 +332,7 @@ export class SaynaClient {
         }
 
         case "participant_disconnected": {
-          const participantMsg = data as ParticipantDisconnectedMessage;
+          const participantMsg = data;
           if (this.participantDisconnectedCallback) {
             await this.participantDisconnectedCallback(
               participantMsg.participant
@@ -323,9 +342,11 @@ export class SaynaClient {
         }
 
         case "tts_playback_complete": {
-          const ttsPlaybackCompleteMsg = data as TTSPlaybackCompleteMessage;
+          const ttsPlaybackCompleteMsg = data;
           if (this.ttsPlaybackCompleteCallback) {
-            await this.ttsPlaybackCompleteCallback(ttsPlaybackCompleteMsg.timestamp);
+            await this.ttsPlaybackCompleteCallback(
+              ttsPlaybackCompleteMsg.timestamp
+            );
           }
           break;
         }
@@ -389,6 +410,14 @@ export class SaynaClient {
       ...(options.headers as Record<string, string>),
     };
 
+    // Add Authorization header when an API key is provided, unless user supplied one
+    const hasAuthHeader = Object.keys(headers).some(
+      (key) => key.toLowerCase() === "authorization"
+    );
+    if (this.apiKey && !hasAuthHeader) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
+
     // Add Content-Type for JSON requests if not already set
     if (options.method === "POST" && options.body && !headers["Content-Type"]) {
       headers["Content-Type"] = "application/json";
@@ -402,12 +431,20 @@ export class SaynaClient {
 
       if (!response.ok) {
         // Try to parse error message from JSON response
-        const errorData = await response.json().catch(() => ({
-          error: response.statusText,
-        }));
-        throw new SaynaServerError(
-          errorData?.error ?? `Request failed: ${response.status} ${response.statusText}`
-        );
+        let errorMessage: string;
+        try {
+          const errorData: unknown = await response.json();
+          errorMessage =
+            errorData &&
+            typeof errorData === "object" &&
+            "error" in errorData &&
+            typeof errorData.error === "string"
+              ? errorData.error
+              : `Request failed: ${response.status} ${response.statusText}`;
+        } catch {
+          errorMessage = `Request failed: ${response.status} ${response.statusText}`;
+        }
+        throw new SaynaServerError(errorMessage);
       }
 
       // Parse response based on expected type
@@ -422,17 +459,14 @@ export class SaynaClient {
         throw error;
       }
       // Wrap other errors in SaynaConnectionError
-      throw new SaynaConnectionError(
-        `Failed to fetch from ${endpoint}`,
-        error
-      );
+      throw new SaynaConnectionError(`Failed to fetch from ${endpoint}`, error);
     }
   }
 
   /**
    * Disconnects from the Sayna WebSocket server and cleans up resources.
    */
-  async disconnect(): Promise<void> {
+  disconnect(): void {
     if (this.websocket) {
       // Remove event handlers to prevent memory leaks
       this.websocket.onopen = null;
@@ -457,7 +491,7 @@ export class SaynaClient {
    * @throws {SaynaNotConnectedError} If not connected
    * @throws {SaynaNotReadyError} If connection is not ready
    */
-  async onAudioInput(audioData: ArrayBuffer): Promise<void> {
+  onAudioInput(audioData: ArrayBuffer): void {
     if (!this.isConnected || !this.websocket) {
       throw new SaynaNotConnectedError();
     }
@@ -547,11 +581,11 @@ export class SaynaClient {
    * @throws {SaynaNotReadyError} If connection is not ready
    * @throws {SaynaValidationError} If text is not a string
    */
-  async speak(
+  speak(
     text: string,
     flush: boolean = true,
     allowInterruption: boolean = true
-  ): Promise<void> {
+  ): void {
     if (!this.isConnected || !this.websocket) {
       throw new SaynaNotConnectedError();
     }
@@ -583,7 +617,7 @@ export class SaynaClient {
    * @throws {SaynaNotConnectedError} If not connected
    * @throws {SaynaNotReadyError} If connection is not ready
    */
-  async clear(): Promise<void> {
+  clear(): void {
     if (!this.isConnected || !this.websocket) {
       throw new SaynaNotConnectedError();
     }
@@ -609,8 +643,8 @@ export class SaynaClient {
    * @throws {SaynaNotConnectedError} If not connected
    * @throws {SaynaNotReadyError} If connection is not ready
    */
-  async ttsFlush(allowInterruption: boolean = true): Promise<void> {
-    await this.speak("", true, allowInterruption);
+  ttsFlush(allowInterruption: boolean = true): void {
+    this.speak("", true, allowInterruption);
   }
 
   /**
@@ -624,12 +658,12 @@ export class SaynaClient {
    * @throws {SaynaNotReadyError} If connection is not ready
    * @throws {SaynaValidationError} If parameters are invalid
    */
-  async sendMessage(
+  sendMessage(
     message: string,
     role: string,
     topic?: string,
     debug?: Record<string, unknown>
-  ): Promise<void> {
+  ): void {
     if (!this.isConnected || !this.websocket) {
       throw new SaynaNotConnectedError();
     }
@@ -674,7 +708,7 @@ export class SaynaClient {
    * ```
    */
   async health(): Promise<HealthResponse> {
-    return await this.fetchFromSayna<HealthResponse>("");
+    return this.fetchFromSayna<HealthResponse>("");
   }
 
   /**
@@ -693,7 +727,7 @@ export class SaynaClient {
    * ```
    */
   async getVoices(): Promise<VoicesResponse> {
-    return await this.fetchFromSayna<VoicesResponse>("voices");
+    return this.fetchFromSayna<VoicesResponse>("voices");
   }
 
   /**
@@ -727,7 +761,7 @@ export class SaynaClient {
       throw new SaynaValidationError("Text cannot be empty");
     }
 
-    return await this.fetchFromSayna<ArrayBuffer>(
+    return this.fetchFromSayna<ArrayBuffer>(
       "speak",
       {
         method: "POST",
@@ -779,17 +813,14 @@ export class SaynaClient {
       throw new SaynaValidationError("participant_identity cannot be empty");
     }
 
-    return await this.fetchFromSayna<LiveKitTokenResponse>(
-      "livekit/token",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          room_name: roomName,
-          participant_name: participantName,
-          participant_identity: participantIdentity,
-        }),
-      }
-    );
+    return this.fetchFromSayna<LiveKitTokenResponse>("livekit/token", {
+      method: "POST",
+      body: JSON.stringify({
+        room_name: roomName,
+        participant_name: participantName,
+        participant_identity: participantIdentity,
+      }),
+    });
   }
 
   /**

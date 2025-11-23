@@ -1,9 +1,10 @@
 import { SaynaClient } from "./sayna-client";
-import { STTConfig, TTSConfig, LiveKitConfig } from "./types";
+import type { STTConfig, TTSConfig, LiveKitConfig } from "./types";
 
 export * from "./sayna-client";
 export * from "./types";
 export * from "./errors";
+export * from "./webhook-receiver";
 
 /**
  * Creates and connects a new SaynaClient instance.
@@ -16,6 +17,7 @@ export * from "./errors";
  * @param ttsConfig - Text-to-speech configuration
  * @param livekitConfig - Optional LiveKit room configuration
  * @param withoutAudio - If true, disables audio streaming (default: false)
+ * @param apiKey - Optional API key used to authorize HTTP and WebSocket calls (defaults to SAYNA_API_KEY env)
  *
  * @returns Promise that resolves to a connected SaynaClient
  *
@@ -68,14 +70,16 @@ export async function saynaConnect(
   sttConfig: STTConfig,
   ttsConfig: TTSConfig,
   livekitConfig?: LiveKitConfig,
-  withoutAudio: boolean = false
+  withoutAudio: boolean = false,
+  apiKey?: string
 ): Promise<SaynaClient> {
   const client = new SaynaClient(
     url,
     sttConfig,
     ttsConfig,
     livekitConfig,
-    withoutAudio
+    withoutAudio,
+    apiKey
   );
   await client.connect();
   return client;

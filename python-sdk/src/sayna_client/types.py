@@ -254,6 +254,64 @@ class SpeakRequest(BaseModel):
 
 
 # ============================================================================
+# Webhook Types
+# ============================================================================
+
+
+class WebhookSIPParticipant(BaseModel):
+    """Participant information from a SIP webhook event."""
+
+    name: Optional[str] = Field(
+        default=None,
+        description="Display name of the SIP participant (may be None if not provided)",
+    )
+    identity: str = Field(..., description="Unique identity assigned to the participant")
+    sid: str = Field(..., description="Participant session ID from LiveKit")
+
+
+class WebhookSIPRoom(BaseModel):
+    """Room information from a SIP webhook event."""
+
+    name: str = Field(..., description="Name of the LiveKit room")
+    sid: str = Field(..., description="Room session ID from LiveKit")
+
+
+class WebhookSIPOutput(BaseModel):
+    """SIP webhook payload sent from Sayna service.
+
+    This represents a cryptographically signed webhook event forwarded by Sayna
+    when a SIP participant joins a LiveKit room. Use the WebhookReceiver class
+    to verify the signature and parse this payload securely.
+
+    See Also:
+        WebhookReceiver: Class for verifying and receiving webhooks
+
+    Example:
+        >>> from sayna_client import WebhookReceiver
+        >>> receiver = WebhookReceiver("your-secret-key")
+        >>> webhook = receiver.receive(headers, raw_body)
+        >>> print(f"From: {webhook.from_phone_number}")
+        >>> print(f"To: {webhook.to_phone_number}")
+        >>> print(f"Room: {webhook.room.name}")
+    """
+
+    participant: WebhookSIPParticipant = Field(..., description="SIP participant information")
+    room: WebhookSIPRoom = Field(..., description="LiveKit room information")
+    from_phone_number: str = Field(
+        ...,
+        description="Caller's phone number (E.164 format, e.g., '+15559876543')",
+    )
+    to_phone_number: str = Field(
+        ...,
+        description="Called phone number (E.164 format, e.g., '+15551234567')",
+    )
+    room_prefix: str = Field(..., description="Room name prefix configured in Sayna (e.g., 'sip-')")
+    sip_host: str = Field(
+        ..., description="SIP domain extracted from the To header (e.g., 'example.com')"
+    )
+
+
+# ============================================================================
 # Union Types
 # ============================================================================
 

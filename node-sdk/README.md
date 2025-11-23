@@ -52,6 +52,7 @@ Performs a health check on the Sayna server.
 **Returns**: `Promise<{ status: string }>` - Status object with "OK" when healthy.
 
 **Example**:
+
 ```typescript
 const health = await client.health();
 console.log(health.status); // "OK"
@@ -64,10 +65,14 @@ Retrieves the catalogue of text-to-speech voices grouped by provider.
 **Returns**: `Promise<Record<string, Voice[]>>` - Object where keys are provider names and values are arrays of voice descriptors.
 
 **Example**:
+
 ```typescript
 const voices = await client.getVoices();
 for (const [provider, voiceList] of Object.entries(voices)) {
-  console.log(`${provider}:`, voiceList.map(v => v.name));
+  console.log(
+    `${provider}:`,
+    voiceList.map((v) => v.name)
+  );
 }
 ```
 
@@ -75,14 +80,15 @@ for (const [provider, voiceList] of Object.entries(voices)) {
 
 Synthesizes text into audio using the REST API. This is a standalone method that doesn't require an active WebSocket connection.
 
-| parameter | type | purpose |
-| --- | --- | --- |
-| `text` | `string` | Text to synthesize (must be non-empty). |
-| `ttsConfig` | `TTSConfig` | Text-to-speech provider configuration. |
+| parameter   | type        | purpose                                 |
+| ----------- | ----------- | --------------------------------------- |
+| `text`      | `string`    | Text to synthesize (must be non-empty). |
+| `ttsConfig` | `TTSConfig` | Text-to-speech provider configuration.  |
 
 **Returns**: `Promise<ArrayBuffer>` - Raw audio data.
 
 **Example**:
+
 ```typescript
 const audioBuffer = await client.speakRest("Hello, world!", {
   provider: "elevenlabs",
@@ -93,7 +99,7 @@ const audioBuffer = await client.speakRest("Hello, world!", {
   sample_rate: 24000,
   connection_timeout: 30,
   request_timeout: 60,
-  pronunciations: []
+  pronunciations: [],
 });
 ```
 
@@ -101,15 +107,16 @@ const audioBuffer = await client.speakRest("Hello, world!", {
 
 Issues a LiveKit access token for a participant.
 
-| parameter | type | purpose |
-| --- | --- | --- |
-| `roomName` | `string` | LiveKit room to join or create. |
-| `participantName` | `string` | Display name for the participant. |
+| parameter             | type     | purpose                                |
+| --------------------- | -------- | -------------------------------------- |
+| `roomName`            | `string` | LiveKit room to join or create.        |
+| `participantName`     | `string` | Display name for the participant.      |
 | `participantIdentity` | `string` | Unique identifier for the participant. |
 
 **Returns**: `Promise<LiveKitTokenResponse>` - Object containing token, room name, participant identity, and LiveKit URL.
 
 **Example**:
+
 ```typescript
 const tokenInfo = await client.getLiveKitToken(
   "my-room",
@@ -128,13 +135,13 @@ These methods require an active WebSocket connection:
 
 ### `new SaynaClient(url, sttConfig, ttsConfig, livekitConfig?, withoutAudio?)`
 
-| parameter | type | purpose |
-| --- | --- | --- |
-| `url` | `string` | Sayna server URL (http://, https://, ws://, or wss://). |
-| `sttConfig` | `STTConfig` | Speech-to-text provider configuration. |
-| `ttsConfig` | `TTSConfig` | Text-to-speech provider configuration. |
-| `livekitConfig` | `LiveKitConfig` | Optional LiveKit room configuration. |
-| `withoutAudio` | `boolean` | Disable audio streaming (defaults to `false`). |
+| parameter       | type            | purpose                                                 |
+| --------------- | --------------- | ------------------------------------------------------- |
+| `url`           | `string`        | Sayna server URL (http://, https://, ws://, or wss://). |
+| `sttConfig`     | `STTConfig`     | Speech-to-text provider configuration.                  |
+| `ttsConfig`     | `TTSConfig`     | Text-to-speech provider configuration.                  |
+| `livekitConfig` | `LiveKitConfig` | Optional LiveKit room configuration.                    |
+| `withoutAudio`  | `boolean`       | Disable audio streaming (defaults to `false`).          |
 
 ### `await client.connect()`
 
@@ -168,11 +175,11 @@ Registers a callback for TTS playback completion events.
 
 Sends text to be synthesized as speech.
 
-| parameter | type | default | purpose |
-| --- | --- | --- | --- |
-| `text` | `string` | - | Text to synthesize. |
-| `flush` | `boolean` | `true` | Clear TTS queue before speaking. |
-| `allowInterruption` | `boolean` | `true` | Allow speech to be interrupted. |
+| parameter           | type      | default | purpose                          |
+| ------------------- | --------- | ------- | -------------------------------- |
+| `text`              | `string`  | -       | Text to synthesize.              |
+| `flush`             | `boolean` | `true`  | Clear TTS queue before speaking. |
+| `allowInterruption` | `boolean` | `true`  | Allow speech to be interrupted.  |
 
 ### `await client.onAudioInput(audioData)`
 

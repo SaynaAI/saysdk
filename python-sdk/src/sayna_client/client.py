@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import warnings
 from typing import Any, Callable, Optional
 
@@ -38,12 +39,12 @@ from sayna_client.types import (
     VoiceDescriptor,
 )
 
+
 logger = logging.getLogger(__name__)
 
 
 class SaynaClient:
-    """
-    Sayna WebSocket client for real-time voice interactions.
+    """Sayna WebSocket client for real-time voice interactions.
 
     This client provides both WebSocket and REST API access to Sayna services.
     It handles connection management, message routing, and event callbacks.
@@ -57,7 +58,7 @@ class SaynaClient:
             url="https://api.sayna.ai",
             stt_config=STTConfig(provider="deepgram", model="nova-2"),
             tts_config=TTSConfig(provider="cartesia", voice_id="example-voice"),
-            api_key="your-api-key"
+            api_key="your-api-key",
         )
 
         # REST API (no WebSocket connection required)
@@ -91,36 +92,36 @@ class SaynaClient:
             tts_config: Text-to-speech provider configuration (required when without_audio=False)
             livekit_config: Optional LiveKit room configuration
             without_audio: If True, disables audio streaming (default: False)
-            api_key: Optional API key for authentication
+            api_key: Optional API key for authentication (defaults to SAYNA_API_KEY env)
 
         Raises:
             SaynaValidationError: If URL is invalid or if audio configs are missing when audio is enabled
         """
         # Validate URL
         if not url or not isinstance(url, str):
-            raise SaynaValidationError("URL must be a non-empty string")
+            msg = "URL must be a non-empty string"
+            raise SaynaValidationError(msg)
         if not url.startswith(("http://", "https://", "ws://", "wss://")):
-            raise SaynaValidationError(
-                "URL must start with http://, https://, ws://, or wss://"
-            )
+            msg = "URL must start with http://, https://, ws://, or wss://"
+            raise SaynaValidationError(msg)
 
         # Validate audio config requirements
-        if not without_audio:
-            if stt_config is None or tts_config is None:
-                raise SaynaValidationError(
-                    "stt_config and tts_config are required when without_audio=False (audio streaming enabled). "
-                    "Either provide both configs or set without_audio=True for non-audio use cases."
-                )
+        if not without_audio and (stt_config is None or tts_config is None):
+            msg = (
+                "stt_config and tts_config are required when without_audio=False (audio streaming enabled). "
+                "Either provide both configs or set without_audio=True for non-audio use cases."
+            )
+            raise SaynaValidationError(msg)
 
         self.url = url
-        self.api_key = api_key
         self.stt_config = stt_config
         self.tts_config = tts_config
         self.livekit_config = livekit_config
         self.without_audio = without_audio
+        self.api_key = api_key or os.environ.get("SAYNA_API_KEY")
 
         # Extract base URL for REST API
-        if url.startswith("ws://") or url.startswith("wss://"):
+        if url.startswith(("ws://", "wss://")):
             # Convert WebSocket URL to HTTP URL
             base_url = url.replace("wss://", "https://").replace("ws://", "http://")
             # Remove /ws endpoint if present
@@ -131,7 +132,7 @@ class SaynaClient:
             self.base_url = url
 
         # HTTP client for REST API calls
-        self._http_client = SaynaHttpClient(self.base_url, api_key)
+        self._http_client = SaynaHttpClient(self.base_url, self.api_key)
 
         # WebSocket connection state
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
@@ -324,7 +325,7 @@ class SaynaClient:
 
         # Convert HTTP(S) URL to WebSocket URL if needed
         ws_url = self.url
-        if ws_url.startswith("http://") or ws_url.startswith("https://"):
+        if ws_url.startswith(("http://", "https://")):
             ws_url = ws_url.replace("https://", "wss://").replace("http://", "ws://")
             # Add /ws endpoint if not present
             if not ws_url.endswith("/ws"):
@@ -357,10 +358,12 @@ class SaynaClient:
 
         except aiohttp.ClientError as e:
             self._connected = False
-            raise SaynaConnectionError(f"Failed to connect to WebSocket: {e}", cause=e) from e
+            msg = f"Failed to connect to WebSocket: {e}"
+            raise SaynaConnectionError(msg, cause=e) from e
         except Exception as e:
             self._connected = False
-            raise SaynaConnectionError(f"Unexpected error during connection: {e}", cause=e) from e
+            msg = f"Unexpected error during connection: {e}"
+            raise SaynaConnectionError(msg, cause=e) from e
 
     async def disconnect(self) -> None:
         """Disconnect from the Sayna WebSocket server."""
@@ -391,8 +394,9 @@ class SaynaClient:
             logger.info("Disconnected from Sayna WebSocket")
 
         except Exception as e:
-            logger.error("Error during disconnect: %s", e)
-            raise SaynaConnectionError(f"Error during disconnect: {e}", cause=e) from e
+            logger.exception("Error during disconnect: %s", e)
+            msg = f"Error during disconnect: {e}"
+            raise SaynaConnectionError(msg, cause=e) from e
         finally:
             # Close HTTP client
             await self._http_client.close()
@@ -626,13 +630,13 @@ class SaynaClient:
     def _check_connected(self) -> None:
         """Check if connected, raise error if not."""
         if not self._connected:
-            raise SaynaNotConnectedError()
+            raise SaynaNotConnectedError
 
     def _check_ready(self) -> None:
         """Check if ready, raise error if not."""
         self._check_connected()
         if not self._ready:
-            raise SaynaNotReadyError()
+            raise SaynaNotReadyError
 
     async def _send_json(self, data: dict[str, Any]) -> None:
         """Send JSON message to WebSocket."""
@@ -662,7 +666,7 @@ class SaynaClient:
         except asyncio.CancelledError:
             logger.debug("Receive loop cancelled")
         except Exception as e:
-            logger.error("Error in receive loop: %s", e)
+            logger.exception("Error in receive loop: %s", e)
         finally:
             self._connected = False
             self._ready = False
@@ -693,9 +697,9 @@ class SaynaClient:
                 logger.warning("Unknown message type: %s", msg_type)
 
         except ValidationError as e:
-            logger.error("Failed to parse message: %s", e)
+            logger.exception("Failed to parse message: %s", e)
         except Exception as e:
-            logger.error("Error handling message: %s", e)
+            logger.exception("Error handling message: %s", e)
 
     async def _handle_binary_message(self, data: bytes) -> None:
         """Handle incoming binary (audio) message."""
@@ -706,7 +710,7 @@ class SaynaClient:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error("Error in audio callback: %s", e)
+                logger.exception("Error in audio callback: %s", e)
 
     async def _handle_ready(self, message: ReadyMessage) -> None:
         """Handle ready message."""
@@ -724,7 +728,7 @@ class SaynaClient:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error("Error in ready callback: %s", e)
+                logger.exception("Error in ready callback: %s", e)
 
     async def _handle_stt_result(self, message: STTResultMessage) -> None:
         """Handle STT result message."""
@@ -734,7 +738,7 @@ class SaynaClient:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error("Error in STT result callback: %s", e)
+                logger.exception("Error in STT result callback: %s", e)
 
     async def _handle_message(self, message: MessageMessage) -> None:
         """Handle message from participant."""
@@ -744,7 +748,7 @@ class SaynaClient:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error("Error in message callback: %s", e)
+                logger.exception("Error in message callback: %s", e)
 
     async def _handle_error(self, message: ErrorMessage) -> None:
         """Handle error message."""
@@ -755,7 +759,7 @@ class SaynaClient:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error("Error in error callback: %s", e)
+                logger.exception("Error in error callback: %s", e)
 
     async def _handle_participant_disconnected(
         self, message: ParticipantDisconnectedMessage
@@ -768,7 +772,7 @@ class SaynaClient:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error("Error in participant disconnected callback: %s", e)
+                logger.exception("Error in participant disconnected callback: %s", e)
 
     async def _handle_tts_playback_complete(self, message: TTSPlaybackCompleteMessage) -> None:
         """Handle TTS playback complete message."""
@@ -779,7 +783,7 @@ class SaynaClient:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
-                logger.error("Error in TTS playback complete callback: %s", e)
+                logger.exception("Error in TTS playback complete callback: %s", e)
 
     # ============================================================================
     # Context Manager Support

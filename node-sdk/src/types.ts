@@ -279,3 +279,48 @@ export interface LiveKitTokenResponse {
   livekit_url: string;
 }
 
+/**
+ * Participant information from a SIP webhook event.
+ */
+export interface WebhookSIPParticipant {
+  /** Display name of the SIP participant (may be undefined if not provided) */
+  name?: string;
+  /** Unique identity assigned to the participant */
+  identity: string;
+  /** Participant session ID from LiveKit */
+  sid: string;
+}
+
+/**
+ * Room information from a SIP webhook event.
+ */
+export interface WebhookSIPRoom {
+  /** Name of the LiveKit room */
+  name: string;
+  /** Room session ID from LiveKit */
+  sid: string;
+}
+
+/**
+ * SIP webhook payload sent from Sayna service.
+ *
+ * This represents a cryptographically signed webhook event forwarded by Sayna
+ * when a SIP participant joins a LiveKit room. Use the WebhookReceiver class
+ * to verify the signature and parse this payload securely.
+ *
+ * @see WebhookReceiver
+ */
+export interface WebhookSIPOutput {
+  /** SIP participant information */
+  participant: WebhookSIPParticipant;
+  /** LiveKit room information */
+  room: WebhookSIPRoom;
+  /** Caller's phone number (E.164 format, e.g., "+15559876543") */
+  from_phone_number: string;
+  /** Called phone number (E.164 format, e.g., "+15551234567") */
+  to_phone_number: string;
+  /** Room name prefix configured in Sayna (e.g., "sip-") */
+  room_prefix: string;
+  /** SIP domain extracted from the To header (e.g., "example.com") */
+  sip_host: string;
+}

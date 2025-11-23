@@ -8,6 +8,11 @@ import aiohttp
 from sayna_client.errors import SaynaServerError, SaynaValidationError
 
 
+# HTTP status code constants
+_HTTP_CLIENT_ERROR = 400
+_HTTP_SERVER_ERROR = 500
+
+
 class SaynaHttpClient:
     """Generic HTTP client for making REST API requests to Sayna server."""
 
@@ -111,7 +116,7 @@ class SaynaHttpClient:
         url = f"{self.base_url}{endpoint}"
 
         async with session.post(url, json=json_data) as response:
-            if response.status >= 400:
+            if response.status >= _HTTP_CLIENT_ERROR:
                 # Try to parse error message
                 try:
                     error_data = await response.json()
@@ -119,10 +124,9 @@ class SaynaHttpClient:
                 except Exception:
                     error_msg = f"HTTP {response.status}: {response.reason}"
 
-                if response.status >= 500:
+                if response.status >= _HTTP_SERVER_ERROR:
                     raise SaynaServerError(error_msg)
-                else:
-                    raise SaynaValidationError(error_msg)
+                raise SaynaValidationError(error_msg)
 
             binary_data = await response.read()
             headers = dict(response.headers)
@@ -141,23 +145,23 @@ class SaynaHttpClient:
             SaynaServerError: If the server returns a 5xx error
             SaynaValidationError: If the request is invalid (4xx error)
         """
-        if response.status >= 400:
+        if response.status >= _HTTP_CLIENT_ERROR:
             try:
                 error_data = await response.json()
                 error_msg = error_data.get("error", f"HTTP {response.status}")
             except Exception:
                 error_msg = f"HTTP {response.status}: {response.reason}"
 
-            if response.status >= 500:
+            if response.status >= _HTTP_SERVER_ERROR:
                 raise SaynaServerError(error_msg)
-            else:
-                raise SaynaValidationError(error_msg)
+            raise SaynaValidationError(error_msg)
 
         try:
             json_response: dict[str, Any] = await response.json()
             return json_response
         except json.JSONDecodeError as e:
-            raise SaynaServerError(f"Failed to decode JSON response: {e}") from e
+            msg = f"Failed to decode JSON response: {e}"
+            raise SaynaServerError(msg) from e
 
     async def __aenter__(self) -> "SaynaHttpClient":
         """Async context manager entry."""

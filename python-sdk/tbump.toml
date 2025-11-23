@@ -12,6 +12,7 @@ regex = '''
 
 [git]
 message_template = "Bump version to {new_version}"
+tag_template = "v{new_version}"
 
 # Files to update when bumping version
 [[file]]
@@ -21,4 +22,3 @@ search = 'version = "{current_version}"'
 [[file]]
 src = "src/sayna_client/__init__.py"
 search = '__version__ = "{current_version}"'
-

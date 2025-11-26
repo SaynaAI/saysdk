@@ -7,7 +7,8 @@ Python SDK for Sayna's real-time voice interaction API. Send audio for speech re
 - 🎤 **Speech-to-Text**: Real-time transcription with support for multiple providers (Deepgram, Google, etc.)
 - 🔊 **Text-to-Speech**: High-quality voice synthesis with various TTS providers (ElevenLabs, Google, etc.)
 - 🔌 **WebSocket Connection**: Async/await support with aiohttp
-- 🌐 **REST API**: Standalone endpoints for health checks, voice catalog, and TTS synthesis
+- 🌐 **REST API**: Standalone endpoints for health checks, voice catalog, TTS synthesis, and SIP hooks management
+- 🔐 **Webhook Receiver**: Secure verification and parsing of SIP webhooks with HMAC-SHA256 signatures
 - ✅ **Type Safety**: Full type hints with Pydantic models
 - 🚀 **Easy to Use**: Simple, intuitive API
 - 📦 **Modern Python**: Built for Python 3.9+
@@ -137,6 +138,45 @@ token_info = await client.get_livekit_token(
 )
 print("Token:", token_info.token)
 print("LiveKit URL:", token_info.livekit_url)
+```
+
+---
+
+#### `await client.get_sip_hooks()`
+
+Retrieves all configured SIP webhook hooks from the runtime cache.
+
+**Returns**: `SipHooksResponse` - Object containing the list of configured SIP hooks.
+
+**Example**:
+```python
+hooks = await client.get_sip_hooks()
+for hook in hooks.hooks:
+    print(f"{hook.host} -> {hook.url}")
+```
+
+---
+
+#### `await client.set_sip_hooks(hooks)`
+
+Adds or replaces SIP webhook hooks. Existing hooks with matching hosts (case-insensitive) are replaced.
+
+| Parameter | Type | Purpose |
+| --- | --- | --- |
+| `hooks` | `list[SipHook]` | List of SipHook objects to add or replace. |
+
+**Returns**: `SipHooksResponse` - Object containing the merged list of all hooks (existing + new).
+
+**Example**:
+```python
+from sayna_client import SipHook
+
+hooks = [
+    SipHook(host="example.com", url="https://webhook.example.com/events"),
+    SipHook(host="another.com", url="https://webhook.another.com/events"),
+]
+response = await client.set_sip_hooks(hooks)
+print(f"Total hooks: {len(response.hooks)}")
 ```
 
 ---
@@ -289,6 +329,123 @@ Disconnects from the WebSocket server and cleans up resources.
 
 ---
 
+### Webhook Receiver
+
+The `WebhookReceiver` class securely verifies and parses cryptographically signed webhooks from the Sayna SIP service.
+
+#### Security Features
+
+- **HMAC-SHA256 Signature Verification**: Ensures webhook authenticity
+- **Constant-Time Comparison**: Prevents timing attack vulnerabilities
+- **Replay Protection**: 5-minute timestamp window prevents replay attacks
+- **Strict Validation**: Comprehensive checks on all required fields
+
+#### `WebhookReceiver(secret=None)`
+
+Creates a new webhook receiver instance.
+
+| Parameter | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `secret` | `str` (optional) | `None` | HMAC signing secret (min 16 chars). Falls back to `SAYNA_WEBHOOK_SECRET` env variable. |
+
+**Example**:
+```python
+from sayna_client import WebhookReceiver
+
+# Explicit secret
+receiver = WebhookReceiver("your-secret-key-min-16-chars")
+
+# Or from environment variable (SAYNA_WEBHOOK_SECRET)
+receiver = WebhookReceiver()
+```
+
+---
+
+#### `receiver.receive(headers, body)`
+
+Verifies and parses an incoming SIP webhook.
+
+| Parameter | Type | Purpose |
+| --- | --- | --- |
+| `headers` | `dict` | HTTP request headers (case-insensitive). |
+| `body` | `str` | Raw request body as string (not parsed JSON). |
+
+**Returns**: `WebhookSIPOutput` - Validated webhook payload with fields:
+- `participant`: Object with `identity`, `sid`, and optional `name`
+- `room`: Object with `name` and `sid`
+- `from_phone_number`: Caller's phone number (E.164 format)
+- `to_phone_number`: Called phone number (E.164 format)
+- `room_prefix`: Room name prefix configured in Sayna
+- `sip_host`: SIP domain extracted from the To header
+
+**Raises**: `SaynaValidationError` if signature verification fails or payload is invalid.
+
+---
+
+#### Flask Example
+
+```python
+from flask import Flask, request, jsonify
+from sayna_client import WebhookReceiver, SaynaValidationError
+
+app = Flask(__name__)
+receiver = WebhookReceiver("your-secret-key-min-16-chars")
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        # CRITICAL: Pass raw body, not parsed JSON
+        body = request.get_data(as_text=True)
+        webhook = receiver.receive(request.headers, body)
+
+        print(f"From: {webhook.from_phone_number}")
+        print(f"To: {webhook.to_phone_number}")
+        print(f"Room: {webhook.room.name}")
+        print(f"SIP Host: {webhook.sip_host}")
+        print(f"Participant: {webhook.participant.identity}")
+
+        return jsonify({"received": True}), 200
+    except SaynaValidationError as error:
+        print(f"Webhook verification failed: {error}")
+        return jsonify({"error": "Invalid signature"}), 401
+```
+
+---
+
+#### FastAPI Example
+
+```python
+from fastapi import FastAPI, Request, HTTPException
+from sayna_client import WebhookReceiver, SaynaValidationError
+
+app = FastAPI()
+receiver = WebhookReceiver()  # Uses SAYNA_WEBHOOK_SECRET env variable
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    try:
+        body = await request.body()
+        body_str = body.decode("utf-8")
+        webhook = receiver.receive(dict(request.headers), body_str)
+
+        # Process webhook...
+        return {"received": True}
+    except SaynaValidationError as error:
+        raise HTTPException(status_code=401, detail=str(error))
+```
+
+---
+
+#### Important Notes
+
+- **Raw Body Required**: You MUST pass the raw request body string, not the parsed JSON object. The signature is computed over the exact bytes received, so any formatting changes will cause verification to fail.
+
+- **Case-Insensitive Headers**: Header names are case-insensitive in HTTP. The receiver handles both `X-Sayna-Signature` and `x-sayna-signature` correctly.
+
+- **Secret Security**: Never commit secrets to version control. Use environment variables or a secret management system. Generate a secure secret with: `openssl rand -hex 32`
+
+---
+
 ## Development
 
 ### Setup
@@ -357,4 +514,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Support
 
-For issues and questions, please visit the [GitHub Issues](https://github.com/sayna/saysdk/issues) page.
+For issues and questions, please visit the [GitHub Issues](https://github.com/SaynaAi/saysdk/issues) page.

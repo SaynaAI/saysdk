@@ -324,3 +324,29 @@ export interface WebhookSIPOutput {
   /** SIP domain extracted from the To header (e.g., "example.com") */
   sip_host: string;
 }
+
+/**
+ * A single SIP webhook hook configuration.
+ */
+export interface SipHook {
+  /** SIP domain pattern (case-insensitive) */
+  host: string;
+  /** HTTPS URL to forward webhook events to */
+  url: string;
+}
+
+/**
+ * Response from the GET /sip/hooks and POST /sip/hooks endpoints.
+ */
+export interface SipHooksResponse {
+  /** List of configured SIP hooks */
+  hooks: SipHook[];
+}
+
+/**
+ * Request body for the POST /sip/hooks endpoint.
+ */
+export interface SetSipHooksRequest {
+  /** List of hooks to add or replace */
+  hooks: SipHook[];
+}

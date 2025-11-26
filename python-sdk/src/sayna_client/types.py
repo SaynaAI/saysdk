@@ -253,6 +253,44 @@ class SpeakRequest(BaseModel):
     tts_config: TTSConfig = Field(..., description="Provider configuration without API credentials")
 
 
+class SipHook(BaseModel):
+    """A SIP webhook hook configuration.
+
+    Defines a mapping between a SIP domain pattern and a webhook URL
+    that will receive forwarded SIP events.
+    """
+
+    host: str = Field(
+        ...,
+        description="SIP domain pattern (case-insensitive) to match incoming SIP requests",
+    )
+    url: str = Field(
+        ...,
+        description="HTTPS URL to forward webhook events to when the host pattern matches",
+    )
+
+
+class SipHooksResponse(BaseModel):
+    """Response from GET /sip/hooks and POST /sip/hooks endpoints.
+
+    Contains the list of all configured SIP webhook hooks.
+    """
+
+    hooks: list[SipHook] = Field(
+        default_factory=list,
+        description="List of configured SIP hooks",
+    )
+
+
+class SetSipHooksRequest(BaseModel):
+    """Request body for POST /sip/hooks."""
+
+    hooks: list[SipHook] = Field(
+        ...,
+        description="List of hooks to add or replace. Existing hooks with matching hosts are replaced.",
+    )
+
+
 # ============================================================================
 # Webhook Types
 # ============================================================================

@@ -39,10 +39,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sayna/saysdk"
+    "url": "https://github.com/SaynaAi/saysdk"
   },
   "bugs": {
-    "url": "https://github.com/sayna/saysdk/issues"
+    "url": "https://github.com/SaynaAi/saysdk/issues"
   },
   "homepage": "https://sayna.ai",
   "engines": {

@@ -14,6 +14,8 @@ import type {
   VoicesResponse,
   HealthResponse,
   LiveKitTokenResponse,
+  SipHook,
+  SipHooksResponse,
 } from "./types";
 import {
   SaynaNotConnectedError,
@@ -820,6 +822,70 @@ export class SaynaClient {
         participant_name: participantName,
         participant_identity: participantIdentity,
       }),
+    });
+  }
+
+  /**
+   * Retrieves all configured SIP webhook hooks from the runtime cache.
+   *
+   * @returns Promise that resolves with the list of configured SIP hooks
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., 500 if reading cache fails)
+   *
+   * @example
+   * ```typescript
+   * const response = await client.getSipHooks();
+   * for (const hook of response.hooks) {
+   *   console.log(`Host: ${hook.host}, URL: ${hook.url}`);
+   * }
+   * ```
+   */
+  async getSipHooks(): Promise<SipHooksResponse> {
+    return this.fetchFromSayna<SipHooksResponse>("sip/hooks");
+  }
+
+  /**
+   * Sets or updates SIP webhook hooks in the runtime cache.
+   *
+   * Hooks with matching hosts will be replaced; new hosts will be added.
+   * The response contains the merged list of all hooks (existing + new).
+   *
+   * @param hooks - Array of SIP hook configurations to add or replace
+   * @returns Promise that resolves with the merged list of all configured hooks
+   * @throws {SaynaValidationError} If hooks array is empty or contains invalid entries
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., 400 for duplicate hosts, 500 for cache errors)
+   *
+   * @example
+   * ```typescript
+   * const response = await client.setSipHooks([
+   *   { host: "example.com", url: "https://webhook.example.com/events" },
+   *   { host: "another.com", url: "https://webhook.another.com/events" }
+   * ]);
+   * console.log("Total hooks configured:", response.hooks.length);
+   * ```
+   */
+  async setSipHooks(hooks: SipHook[]): Promise<SipHooksResponse> {
+    if (!Array.isArray(hooks)) {
+      throw new SaynaValidationError("hooks must be an array");
+    }
+
+    if (hooks.length === 0) {
+      throw new SaynaValidationError("hooks array cannot be empty");
+    }
+
+    for (const [i, hook] of hooks.entries()) {
+      if (!hook || !hook.host || typeof hook.host !== "string" || hook.host.trim().length === 0) {
+        throw new SaynaValidationError(`hooks[${i}].host must be a non-empty string`);
+      }
+      if (!hook.url || typeof hook.url !== "string" || hook.url.trim().length === 0) {
+        throw new SaynaValidationError(`hooks[${i}].url must be a non-empty string`);
+      }
+    }
+
+    return this.fetchFromSayna<SipHooksResponse>("sip/hooks", {
+      method: "POST",
+      body: JSON.stringify({ hooks }),
     });
   }
 

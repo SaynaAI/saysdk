@@ -30,6 +30,9 @@ from sayna_client.types import (
     ParticipantDisconnectedMessage,
     ReadyMessage,
     SendMessageMessage,
+    SetSipHooksRequest,
+    SipHook,
+    SipHooksResponse,
     SpeakMessage,
     SpeakRequest,
     STTConfig,
@@ -303,6 +306,52 @@ class SaynaClient:
         )
         data = await self._http_client.post("/livekit/token", json_data=request.model_dump())
         return LiveKitTokenResponse(**data)
+
+    async def get_sip_hooks(self) -> SipHooksResponse:
+        """Retrieve all configured SIP webhook hooks from the runtime cache.
+
+        Returns:
+            SipHooksResponse containing the list of configured SIP hooks
+
+        Raises:
+            SaynaServerError: If reading the cache fails
+
+        Example:
+            >>> hooks = await client.get_sip_hooks()
+            >>> for hook in hooks.hooks:
+            ...     print(f"{hook.host} -> {hook.url}")
+        """
+        data = await self._http_client.get("/sip/hooks")
+        return SipHooksResponse(**data)
+
+    async def set_sip_hooks(self, hooks: list[SipHook]) -> SipHooksResponse:
+        """Add or replace SIP webhook hooks.
+
+        Existing hooks with matching hosts (case-insensitive) are replaced.
+        New hooks are added to the existing configuration.
+
+        Args:
+            hooks: List of SipHook objects to add or replace
+
+        Returns:
+            SipHooksResponse containing the merged list of all hooks (existing + new)
+
+        Raises:
+            SaynaValidationError: If duplicate hosts are detected in the request
+            SaynaServerError: If no cache path is configured or writing fails
+
+        Example:
+            >>> from sayna_client import SipHook
+            >>> hooks = [
+            ...     SipHook(host="example.com", url="https://webhook.example.com/events"),
+            ...     SipHook(host="another.com", url="https://webhook.another.com/events"),
+            ... ]
+            >>> response = await client.set_sip_hooks(hooks)
+            >>> print(f"Total hooks: {len(response.hooks)}")
+        """
+        request = SetSipHooksRequest(hooks=hooks)
+        data = await self._http_client.post("/sip/hooks", json_data=request.model_dump())
+        return SipHooksResponse(**data)
 
     # ============================================================================
     # WebSocket Connection Management

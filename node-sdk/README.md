@@ -127,6 +127,48 @@ console.log("Token:", tokenInfo.token);
 console.log("LiveKit URL:", tokenInfo.livekit_url);
 ```
 
+### `await client.getSipHooks()`
+
+Retrieves all configured SIP webhook hooks from the runtime cache.
+
+**Returns**: `Promise<SipHooksResponse>` - Object containing an array of configured hooks.
+
+**Example**:
+
+```typescript
+const response = await client.getSipHooks();
+for (const hook of response.hooks) {
+  console.log(`Host: ${hook.host}, URL: ${hook.url}`);
+}
+```
+
+### `await client.setSipHooks(hooks)`
+
+Sets or updates SIP webhook hooks in the runtime cache. Hooks with matching hosts will be replaced; new hosts will be added.
+
+| parameter | type        | purpose                                  |
+| --------- | ----------- | ---------------------------------------- |
+| `hooks`   | `SipHook[]` | Array of SIP hook configurations to set. |
+
+Each `SipHook` object contains:
+
+| field  | type     | description                              |
+| ------ | -------- | ---------------------------------------- |
+| `host` | `string` | SIP domain pattern (case-insensitive).   |
+| `url`  | `string` | HTTPS URL to forward webhook events to.  |
+
+**Returns**: `Promise<SipHooksResponse>` - Object containing the merged list of all configured hooks.
+
+**Example**:
+
+```typescript
+const response = await client.setSipHooks([
+  { host: "example.com", url: "https://webhook.example.com/events" },
+  { host: "another.com", url: "https://webhook.another.com/events" },
+]);
+console.log("Total hooks configured:", response.hooks.length);
+```
+
 ---
 
 ### WebSocket API Methods
@@ -224,6 +266,133 @@ Identity assigned to the agent participant when LiveKit is enabled, if available
 ### `client.saynaParticipantName`
 
 Display name assigned to the agent participant when LiveKit is enabled, if available.
+
+---
+
+## Webhook Receiver
+
+The SDK includes a `WebhookReceiver` class for securely receiving and verifying cryptographically signed webhooks from Sayna's SIP service.
+
+### Security Features
+
+- **HMAC-SHA256 Signature Verification**: Ensures webhook authenticity
+- **Constant-Time Comparison**: Prevents timing attack vulnerabilities
+- **Replay Protection**: 5-minute timestamp window prevents replay attacks
+- **Strict Validation**: Comprehensive checks on all required fields
+
+### `new WebhookReceiver(secret?)`
+
+Creates a new webhook receiver instance.
+
+| parameter | type     | purpose                                                                      |
+| --------- | -------- | ---------------------------------------------------------------------------- |
+| `secret`  | `string` | HMAC signing secret (min 16 chars). Defaults to `SAYNA_WEBHOOK_SECRET` env. |
+
+**Example**:
+
+```typescript
+import { WebhookReceiver } from "@sayna/node-sdk";
+
+// Explicit secret
+const receiver = new WebhookReceiver("your-secret-key-min-16-chars");
+
+// Or use environment variable
+process.env.SAYNA_WEBHOOK_SECRET = "your-secret-key";
+const receiver = new WebhookReceiver();
+```
+
+### `receiver.receive(headers, body)`
+
+Verifies and parses an incoming SIP webhook.
+
+| parameter | type                                        | purpose                                      |
+| --------- | ------------------------------------------- | -------------------------------------------- |
+| `headers` | `Record<string, string \| string[] \| undefined>` | HTTP request headers (case-insensitive).     |
+| `body`    | `string`                                    | Raw request body as string (not parsed JSON). |
+
+**Returns**: `WebhookSIPOutput` - Parsed and validated webhook payload.
+
+**Throws**: `SaynaValidationError` if signature verification fails or payload is invalid.
+
+### Express Example
+
+```typescript
+import express from "express";
+import { WebhookReceiver } from "@sayna/node-sdk";
+
+const app = express();
+const receiver = new WebhookReceiver("your-secret-key-min-16-chars");
+
+app.post(
+  "/webhook",
+  express.json({
+    verify: (req, res, buf) => {
+      (req as any).rawBody = buf.toString("utf8");
+    },
+  }),
+  (req, res) => {
+    try {
+      const webhook = receiver.receive(req.headers, (req as any).rawBody);
+
+      console.log("Valid webhook received:");
+      console.log("  From:", webhook.from_phone_number);
+      console.log("  To:", webhook.to_phone_number);
+      console.log("  Room:", webhook.room.name);
+      console.log("  SIP Host:", webhook.sip_host);
+      console.log("  Participant:", webhook.participant.identity);
+
+      res.status(200).json({ received: true });
+    } catch (error) {
+      console.error("Webhook verification failed:", error.message);
+      res.status(401).json({ error: "Invalid signature" });
+    }
+  }
+);
+```
+
+### Fastify Example
+
+```typescript
+import Fastify from "fastify";
+import { WebhookReceiver } from "@sayna/node-sdk";
+
+const fastify = Fastify();
+const receiver = new WebhookReceiver();
+
+fastify.post(
+  "/webhook",
+  {
+    config: { rawBody: true },
+  },
+  async (request, reply) => {
+    try {
+      const webhook = receiver.receive(request.headers, request.rawBody);
+      return { received: true };
+    } catch (error) {
+      reply.code(401);
+      return { error: error.message };
+    }
+  }
+);
+```
+
+### WebhookSIPOutput Type
+
+The `receive` method returns a `WebhookSIPOutput` object with the following structure:
+
+| field               | type                    | description                                        |
+| ------------------- | ----------------------- | -------------------------------------------------- |
+| `participant`       | `WebhookSIPParticipant` | SIP participant information.                       |
+| `participant.identity` | `string`             | Unique identity assigned to the participant.       |
+| `participant.sid`   | `string`                | Participant session ID from LiveKit.               |
+| `participant.name`  | `string?`               | Display name (optional).                           |
+| `room`              | `WebhookSIPRoom`        | LiveKit room information.                          |
+| `room.name`         | `string`                | Name of the LiveKit room.                          |
+| `room.sid`          | `string`                | Room session ID from LiveKit.                      |
+| `from_phone_number` | `string`                | Caller's phone number (E.164 format).              |
+| `to_phone_number`   | `string`                | Called phone number (E.164 format).                |
+| `room_prefix`       | `string`                | Room name prefix configured in Sayna.              |
+| `sip_host`          | `string`                | SIP domain extracted from the To header.           |
 
 ## Development
 

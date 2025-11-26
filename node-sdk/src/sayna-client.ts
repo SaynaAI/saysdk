@@ -875,7 +875,7 @@ export class SaynaClient {
     }
 
     for (const [i, hook] of hooks.entries()) {
-      if (!hook || !hook.host || typeof hook.host !== "string" || hook.host.trim().length === 0) {
+      if (!hook.host || typeof hook.host !== "string" || hook.host.trim().length === 0) {
         throw new SaynaValidationError(`hooks[${i}].host must be a non-empty string`);
       }
       if (!hook.url || typeof hook.url !== "string" || hook.url.trim().length === 0) {

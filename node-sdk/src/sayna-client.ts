@@ -890,6 +890,45 @@ export class SaynaClient {
   }
 
   /**
+   * Deletes SIP webhook hooks by host name from the runtime cache.
+   *
+   * If a deleted host exists in the original server configuration,
+   * it will revert to its config value after deletion.
+   *
+   * @param hosts - Array of host names to remove (case-insensitive)
+   * @returns Promise that resolves with the updated list of hooks after deletion
+   * @throws {SaynaValidationError} If hosts array is empty or contains invalid entries
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., 400 for empty hosts, 500 for cache errors)
+   *
+   * @example
+   * ```typescript
+   * const response = await client.deleteSipHooks(["example.com", "another.com"]);
+   * console.log("Remaining hooks:", response.hooks.length);
+   * ```
+   */
+  async deleteSipHooks(hosts: string[]): Promise<SipHooksResponse> {
+    if (!Array.isArray(hosts)) {
+      throw new SaynaValidationError("hosts must be an array");
+    }
+
+    if (hosts.length === 0) {
+      throw new SaynaValidationError("hosts array cannot be empty");
+    }
+
+    for (const [i, host] of hosts.entries()) {
+      if (!host || typeof host !== "string" || host.trim().length === 0) {
+        throw new SaynaValidationError(`hosts[${i}] must be a non-empty string`);
+      }
+    }
+
+    return this.fetchFromSayna<SipHooksResponse>("sip/hooks", {
+      method: "DELETE",
+      body: JSON.stringify({ hosts }),
+    });
+  }
+
+  /**
    * Whether the client is ready to send/receive data.
    */
   get ready(): boolean {

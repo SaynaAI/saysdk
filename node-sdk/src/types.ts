@@ -350,3 +350,11 @@ export interface SetSipHooksRequest {
   /** List of hooks to add or replace */
   hooks: SipHook[];
 }
+
+/**
+ * Request body for the DELETE /sip/hooks endpoint.
+ */
+export interface DeleteSipHooksRequest {
+  /** List of host names to remove (case-insensitive) */
+  hosts: string[];
+}

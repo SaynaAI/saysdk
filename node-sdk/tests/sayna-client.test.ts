@@ -364,6 +364,128 @@ describe("SaynaClient REST API Methods", () => {
   });
 });
 
+describe("SaynaClient SIP Hooks Methods", () => {
+  test("should validate setSipHooks hooks is an array", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(async () => client.setSipHooks("not-an-array" as any)).toThrow(
+      SaynaValidationError
+    );
+    expect(async () => client.setSipHooks("not-an-array" as any)).toThrow(
+      "hooks must be an array"
+    );
+  });
+
+  test("should validate setSipHooks hooks array is not empty", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(async () => client.setSipHooks([])).toThrow(SaynaValidationError);
+    expect(async () => client.setSipHooks([])).toThrow(
+      "hooks array cannot be empty"
+    );
+  });
+
+  test("should validate setSipHooks hook host is non-empty string", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(async () =>
+      client.setSipHooks([{ host: "", url: "https://example.com" }])
+    ).toThrow("hooks[0].host must be a non-empty string");
+
+    expect(async () =>
+      client.setSipHooks([{ host: "   ", url: "https://example.com" }])
+    ).toThrow("hooks[0].host must be a non-empty string");
+
+    expect(async () =>
+      client.setSipHooks([{ host: 123 as any, url: "https://example.com" }])
+    ).toThrow("hooks[0].host must be a non-empty string");
+  });
+
+  test("should validate setSipHooks hook url is non-empty string", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(async () =>
+      client.setSipHooks([{ host: "example.com", url: "" }])
+    ).toThrow("hooks[0].url must be a non-empty string");
+
+    expect(async () =>
+      client.setSipHooks([{ host: "example.com", url: "   " }])
+    ).toThrow("hooks[0].url must be a non-empty string");
+
+    expect(async () =>
+      client.setSipHooks([{ host: "example.com", url: 123 as any }])
+    ).toThrow("hooks[0].url must be a non-empty string");
+  });
+
+  test("should validate deleteSipHooks hosts is an array", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(async () => client.deleteSipHooks("not-an-array" as any)).toThrow(
+      SaynaValidationError
+    );
+    expect(async () => client.deleteSipHooks("not-an-array" as any)).toThrow(
+      "hosts must be an array"
+    );
+  });
+
+  test("should validate deleteSipHooks hosts array is not empty", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(async () => client.deleteSipHooks([])).toThrow(SaynaValidationError);
+    expect(async () => client.deleteSipHooks([])).toThrow(
+      "hosts array cannot be empty"
+    );
+  });
+
+  test("should validate deleteSipHooks each host is non-empty string", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(async () => client.deleteSipHooks([""])).toThrow(
+      "hosts[0] must be a non-empty string"
+    );
+
+    expect(async () => client.deleteSipHooks(["   "])).toThrow(
+      "hosts[0] must be a non-empty string"
+    );
+
+    expect(async () => client.deleteSipHooks([123 as any])).toThrow(
+      "hosts[0] must be a non-empty string"
+    );
+
+    expect(async () => client.deleteSipHooks(["valid.com", ""])).toThrow(
+      "hosts[1] must be a non-empty string"
+    );
+  });
+});
+
 // Note: Full integration tests with mock WebSocket server would be added here
 // These tests cover:
 // - WebSocket connection with valid config
@@ -372,4 +494,4 @@ describe("SaynaClient REST API Methods", () => {
 // - Event callbacks (register_on_tts_audio, register_on_stt_result, etc.)
 // - Error handling and reconnection
 // - Proper cleanup on disconnect
-// - REST API methods (health, get_voices, speak_rest, get_livekit_token)
+// - REST API methods (health, get_voices, speak_rest, get_livekit_token, sip_hooks)

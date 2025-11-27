@@ -291,6 +291,16 @@ class SetSipHooksRequest(BaseModel):
     )
 
 
+class DeleteSipHooksRequest(BaseModel):
+    """Request body for DELETE /sip/hooks."""
+
+    hosts: list[str] = Field(
+        ...,
+        min_length=1,
+        description="List of host names to remove (case-insensitive). Must contain at least one host.",
+    )
+
+
 # ============================================================================
 # Webhook Types
 # ============================================================================

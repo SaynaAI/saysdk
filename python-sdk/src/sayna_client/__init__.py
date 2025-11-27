@@ -12,6 +12,7 @@ from sayna_client.errors import (
 from sayna_client.types import (
     ClearMessage,
     ConfigMessage,
+    DeleteSipHooksRequest,
     ErrorMessage,
     HealthResponse,
     LiveKitConfig,
@@ -47,6 +48,7 @@ __version__ = "0.0.7"
 __all__ = [
     "ClearMessage",
     "ConfigMessage",
+    "DeleteSipHooksRequest",
     "ErrorMessage",
     "HealthResponse",
     "LiveKitConfig",

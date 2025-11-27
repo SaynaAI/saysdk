@@ -94,6 +94,30 @@ class SaynaHttpClient:
         async with session.post(url, data=data, json=json_data) as response:
             return await self._handle_response(response)
 
+    async def delete(
+        self,
+        endpoint: str,
+        json_data: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Make a DELETE request.
+
+        Args:
+            endpoint: API endpoint path (e.g., '/sip/hooks')
+            json_data: Optional JSON payload
+
+        Returns:
+            JSON response as a dictionary
+
+        Raises:
+            SaynaServerError: If the server returns an error
+            SaynaValidationError: If the request is invalid
+        """
+        session = await self._ensure_session()
+        url = f"{self.base_url}{endpoint}"
+
+        async with session.delete(url, json=json_data) as response:
+            return await self._handle_response(response)
+
     async def post_binary(
         self,
         endpoint: str,

@@ -21,6 +21,7 @@ from sayna_client.http_client import SaynaHttpClient
 from sayna_client.types import (
     ClearMessage,
     ConfigMessage,
+    DeleteSipHooksRequest,
     ErrorMessage,
     HealthResponse,
     LiveKitConfig,
@@ -351,6 +352,32 @@ class SaynaClient:
         """
         request = SetSipHooksRequest(hooks=hooks)
         data = await self._http_client.post("/sip/hooks", json_data=request.model_dump())
+        return SipHooksResponse(**data)
+
+    async def delete_sip_hooks(self, hosts: list[str]) -> SipHooksResponse:
+        """Remove SIP webhook hooks by host name.
+
+        Changes persist across server restarts. If a deleted host exists in
+        the original server configuration, it will revert to its config value
+        after deletion.
+
+        Args:
+            hosts: List of host names to remove (case-insensitive).
+                   Must contain at least one host.
+
+        Returns:
+            SipHooksResponse containing the updated list of hooks after deletion
+
+        Raises:
+            SaynaValidationError: If the hosts list is empty
+            SaynaServerError: If no cache path is configured or writing fails
+
+        Example:
+            >>> response = await client.delete_sip_hooks(["example.com", "another.com"])
+            >>> print(f"Remaining hooks: {len(response.hooks)}")
+        """
+        request = DeleteSipHooksRequest(hosts=hosts)
+        data = await self._http_client.delete("/sip/hooks", json_data=request.model_dump())
         return SipHooksResponse(**data)
 
     # ============================================================================

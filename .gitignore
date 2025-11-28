@@ -1,3 +1,6 @@
 .claude
 CLAUDE.md
 tmp/
+todo/
+run-todo.sh
+rust-ffi-migration-plan.md

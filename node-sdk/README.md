@@ -152,10 +152,10 @@ Sets or updates SIP webhook hooks in the runtime cache. Hooks with matching host
 
 Each `SipHook` object contains:
 
-| field  | type     | description                              |
-| ------ | -------- | ---------------------------------------- |
-| `host` | `string` | SIP domain pattern (case-insensitive).   |
-| `url`  | `string` | HTTPS URL to forward webhook events to.  |
+| field  | type     | description                             |
+| ------ | -------- | --------------------------------------- |
+| `host` | `string` | SIP domain pattern (case-insensitive).  |
+| `url`  | `string` | HTTPS URL to forward webhook events to. |
 
 **Returns**: `Promise<SipHooksResponse>` - Object containing the merged list of all configured hooks.
 
@@ -284,8 +284,8 @@ The SDK includes a `WebhookReceiver` class for securely receiving and verifying 
 
 Creates a new webhook receiver instance.
 
-| parameter | type     | purpose                                                                      |
-| --------- | -------- | ---------------------------------------------------------------------------- |
+| parameter | type     | purpose                                                                     |
+| --------- | -------- | --------------------------------------------------------------------------- |
 | `secret`  | `string` | HMAC signing secret (min 16 chars). Defaults to `SAYNA_WEBHOOK_SECRET` env. |
 
 **Example**:
@@ -305,10 +305,10 @@ const receiver = new WebhookReceiver();
 
 Verifies and parses an incoming SIP webhook.
 
-| parameter | type                                        | purpose                                      |
-| --------- | ------------------------------------------- | -------------------------------------------- |
-| `headers` | `Record<string, string \| string[] \| undefined>` | HTTP request headers (case-insensitive).     |
-| `body`    | `string`                                    | Raw request body as string (not parsed JSON). |
+| parameter | type                                              | purpose                                       |
+| --------- | ------------------------------------------------- | --------------------------------------------- |
+| `headers` | `Record<string, string \| string[] \| undefined>` | HTTP request headers (case-insensitive).      |
+| `body`    | `string`                                          | Raw request body as string (not parsed JSON). |
 
 **Returns**: `WebhookSIPOutput` - Parsed and validated webhook payload.
 
@@ -380,19 +380,19 @@ fastify.post(
 
 The `receive` method returns a `WebhookSIPOutput` object with the following structure:
 
-| field               | type                    | description                                        |
-| ------------------- | ----------------------- | -------------------------------------------------- |
-| `participant`       | `WebhookSIPParticipant` | SIP participant information.                       |
-| `participant.identity` | `string`             | Unique identity assigned to the participant.       |
-| `participant.sid`   | `string`                | Participant session ID from LiveKit.               |
-| `participant.name`  | `string?`               | Display name (optional).                           |
-| `room`              | `WebhookSIPRoom`        | LiveKit room information.                          |
-| `room.name`         | `string`                | Name of the LiveKit room.                          |
-| `room.sid`          | `string`                | Room session ID from LiveKit.                      |
-| `from_phone_number` | `string`                | Caller's phone number (E.164 format).              |
-| `to_phone_number`   | `string`                | Called phone number (E.164 format).                |
-| `room_prefix`       | `string`                | Room name prefix configured in Sayna.              |
-| `sip_host`          | `string`                | SIP domain extracted from the To header.           |
+| field                  | type                    | description                                  |
+| ---------------------- | ----------------------- | -------------------------------------------- |
+| `participant`          | `WebhookSIPParticipant` | SIP participant information.                 |
+| `participant.identity` | `string`                | Unique identity assigned to the participant. |
+| `participant.sid`      | `string`                | Participant session ID from LiveKit.         |
+| `participant.name`     | `string?`               | Display name (optional).                     |
+| `room`                 | `WebhookSIPRoom`        | LiveKit room information.                    |
+| `room.name`            | `string`                | Name of the LiveKit room.                    |
+| `room.sid`             | `string`                | Room session ID from LiveKit.                |
+| `from_phone_number`    | `string`                | Caller's phone number (E.164 format).        |
+| `to_phone_number`      | `string`                | Called phone number (E.164 format).          |
+| `room_prefix`          | `string`                | Room name prefix configured in Sayna.        |
+| `sip_host`             | `string`                | SIP domain extracted from the To header.     |
 
 ## Development
 

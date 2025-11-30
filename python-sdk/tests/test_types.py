@@ -39,7 +39,7 @@ class TestSTTConfig:
     def test_invalid_stt_config(self) -> None:
         """Test that missing required fields raise validation error."""
         with pytest.raises(ValidationError):
-            STTConfig(provider="deepgram")  # type: ignore
+            STTConfig(provider="deepgram")  # type: ignore[call-arg]
 
 
 class TestTTSConfig:
@@ -87,7 +87,6 @@ class TestLiveKitConfig:
         config = LiveKitConfig(
             room_name="test-room",
             enable_recording=True,
-            recording_file_key="recording.mp4",
         )
         assert config.room_name == "test-room"
         assert config.enable_recording is True
@@ -97,7 +96,6 @@ class TestLiveKitConfig:
         config = LiveKitConfig(room_name="test-room")
         assert config.room_name == "test-room"
         assert config.enable_recording is False  # Default changed to False
-        assert config.recording_file_key is None
         assert config.sayna_participant_identity == "sayna-ai"  # Default
         assert config.sayna_participant_name == "Sayna AI"  # Default
         assert config.listen_participants == []  # Default

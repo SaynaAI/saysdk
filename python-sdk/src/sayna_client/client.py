@@ -87,6 +87,7 @@ class SaynaClient:
         livekit_config: Optional[LiveKitConfig] = None,
         without_audio: bool = False,
         api_key: Optional[str] = None,
+        stream_id: Optional[str] = None,
     ) -> None:
         """Initialize the Sayna client.
 
@@ -97,6 +98,7 @@ class SaynaClient:
             livekit_config: Optional LiveKit room configuration
             without_audio: If True, disables audio streaming (default: False)
             api_key: Optional API key for authentication (defaults to SAYNA_API_KEY env)
+            stream_id: Optional session identifier for recording paths; server generates a UUID when omitted
 
         Raises:
             SaynaValidationError: If URL is invalid or if audio configs are missing when audio is enabled
@@ -123,6 +125,7 @@ class SaynaClient:
         self.livekit_config = livekit_config
         self.without_audio = without_audio
         self.api_key = api_key or os.environ.get("SAYNA_API_KEY")
+        self.stream_id = stream_id
 
         # Extract base URL for REST API
         if url.startswith(("ws://", "wss://")):
@@ -150,6 +153,7 @@ class SaynaClient:
         self._livekit_url: Optional[str] = None
         self._sayna_participant_identity: Optional[str] = None
         self._sayna_participant_name: Optional[str] = None
+        self._stream_id: Optional[str] = None
 
         # Event callbacks
         self._on_ready: Optional[Callable[[ReadyMessage], Any]] = None
@@ -195,6 +199,16 @@ class SaynaClient:
     def sayna_participant_name(self) -> Optional[str]:
         """Sayna participant name (available after ready when LiveKit is enabled)."""
         return self._sayna_participant_name
+
+    @property
+    def received_stream_id(self) -> Optional[str]:
+        """Stream ID returned by the server in the ready message.
+
+        This can be used to download recordings. The value is available after
+        the connection is ready. If a stream_id was provided in the constructor,
+        this will typically match that value. Otherwise, it will be a server-generated UUID.
+        """
+        return self._stream_id
 
     # ============================================================================
     # REST API Methods
@@ -380,6 +394,34 @@ class SaynaClient:
         data = await self._http_client.delete("/sip/hooks", json_data=request.model_dump())
         return SipHooksResponse(**data)
 
+    async def get_recording(self, stream_id: str) -> tuple[bytes, dict[str, str]]:
+        """Download the recorded audio file for a completed session.
+
+        Args:
+            stream_id: The session identifier (obtained from received_stream_id after a session)
+
+        Returns:
+            Tuple of (audio_bytes, response_headers) where audio_bytes is the
+            binary audio data (OGG format) and response_headers contains metadata
+            such as Content-Type and Content-Length
+
+        Raises:
+            SaynaValidationError: If stream_id is empty or whitespace-only
+            SaynaServerError: If the recording is not found or server error occurs
+
+        Example:
+            >>> # After a completed session
+            >>> stream_id = client.received_stream_id
+            >>> audio_data, headers = await client.get_recording(stream_id)
+            >>> with open("recording.ogg", "wb") as f:
+            ...     f.write(audio_data)
+        """
+        if not stream_id or not stream_id.strip():
+            msg = "stream_id must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        return await self._http_client.get_binary(f"/recording/{stream_id}")
+
     # ============================================================================
     # WebSocket Connection Management
     # ============================================================================
@@ -422,6 +464,7 @@ class SaynaClient:
 
             # Send config message
             config = ConfigMessage(
+                stream_id=self.stream_id,
                 audio=not self.without_audio,
                 stt_config=self.stt_config,
                 tts_config=self.tts_config,
@@ -467,6 +510,7 @@ class SaynaClient:
 
             self._connected = False
             self._ready = False
+            self._stream_id = None
             logger.info("Disconnected from Sayna WebSocket")
 
         except Exception as e:
@@ -795,6 +839,7 @@ class SaynaClient:
         self._livekit_url = message.livekit_url
         self._sayna_participant_identity = message.sayna_participant_identity
         self._sayna_participant_name = message.sayna_participant_name
+        self._stream_id = message.stream_id
 
         logger.info("Ready - LiveKit room: %s", self._livekit_room_name)
 

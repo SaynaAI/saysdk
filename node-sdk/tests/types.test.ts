@@ -73,7 +73,6 @@ describe("Type Validation", () => {
     const config: LiveKitConfig = {
       room_name: "test-room",
       enable_recording: true,
-      recording_file_key: "recording.mp4",
     };
 
     expect(config.room_name).toBe("test-room");

@@ -96,6 +96,8 @@ export class SaynaClient {
   private _livekitUrl?: string;
   private _saynaParticipantIdentity?: string;
   private _saynaParticipantName?: string;
+  private _streamId?: string;
+  private inputStreamId?: string;
   private sttCallback?: STTResultHandler;
   private ttsCallback?: TTSAudioHandler;
   private errorCallback?: ErrorHandler;
@@ -114,6 +116,7 @@ export class SaynaClient {
    * @param livekitConfig - Optional LiveKit room configuration
    * @param withoutAudio - If true, disables audio streaming (default: false)
    * @param apiKey - Optional API key used to authorize HTTP and WebSocket calls (defaults to SAYNA_API_KEY env)
+   * @param streamId - Optional session identifier for recording paths; server generates a UUID when omitted
    *
    * @throws {SaynaValidationError} If URL is invalid or if audio configs are missing when audio is enabled
    */
@@ -123,7 +126,8 @@ export class SaynaClient {
     ttsConfig?: TTSConfig,
     livekitConfig?: LiveKitConfig,
     withoutAudio: boolean = false,
-    apiKey?: string
+    apiKey?: string,
+    streamId?: string
   ) {
     // Validate URL
     if (!url || typeof url !== "string") {
@@ -156,6 +160,7 @@ export class SaynaClient {
     this.livekitConfig = livekitConfig;
     this.withoutAudio = withoutAudio;
     this.apiKey = apiKey ?? process.env.SAYNA_API_KEY;
+    this.inputStreamId = streamId;
   }
 
   /**
@@ -201,6 +206,7 @@ export class SaynaClient {
           // Send initial configuration
           const configMessage: ConfigMessage = {
             type: "config",
+            stream_id: this.inputStreamId,
             stt_config: this.sttConfig,
             tts_config: this.ttsConfig,
             livekit: this.livekitConfig,
@@ -300,6 +306,7 @@ export class SaynaClient {
           this._livekitUrl = readyMsg.livekit_url;
           this._saynaParticipantIdentity = readyMsg.sayna_participant_identity;
           this._saynaParticipantName = readyMsg.sayna_participant_name;
+          this._streamId = readyMsg.stream_id;
           if (this.readyPromiseResolve) {
             this.readyPromiseResolve();
           }
@@ -375,6 +382,7 @@ export class SaynaClient {
     this._livekitUrl = undefined;
     this._saynaParticipantIdentity = undefined;
     this._saynaParticipantName = undefined;
+    this._streamId = undefined;
   }
 
   /**
@@ -826,6 +834,37 @@ export class SaynaClient {
   }
 
   /**
+   * Downloads the recorded audio file for a completed session.
+   *
+   * @param streamId - The session identifier (obtained from the `streamId` getter after connection)
+   * @returns Promise that resolves with the audio data as ArrayBuffer (OGG format)
+   * @throws {SaynaValidationError} If streamId is empty
+   * @throws {SaynaConnectionError} If the network request fails
+   * @throws {SaynaServerError} If the recording is not found or server returns an error
+   *
+   * @example
+   * ```typescript
+   * // After a session completes, download the recording
+   * const audioBuffer = await client.getRecording(client.streamId!);
+   *
+   * // Save to file (Node.js)
+   * import { writeFile } from "fs/promises";
+   * await writeFile("recording.ogg", Buffer.from(audioBuffer));
+   * ```
+   */
+  async getRecording(streamId: string): Promise<ArrayBuffer> {
+    if (!streamId || streamId.trim().length === 0) {
+      throw new SaynaValidationError("streamId cannot be empty");
+    }
+
+    return this.fetchFromSayna<ArrayBuffer>(
+      `recording/${encodeURIComponent(streamId)}`,
+      { method: "GET" },
+      "arrayBuffer"
+    );
+  }
+
+  /**
    * Retrieves all configured SIP webhook hooks from the runtime cache.
    *
    * @returns Promise that resolves with the list of configured SIP hooks
@@ -875,11 +914,23 @@ export class SaynaClient {
     }
 
     for (const [i, hook] of hooks.entries()) {
-      if (!hook.host || typeof hook.host !== "string" || hook.host.trim().length === 0) {
-        throw new SaynaValidationError(`hooks[${i}].host must be a non-empty string`);
+      if (
+        !hook.host ||
+        typeof hook.host !== "string" ||
+        hook.host.trim().length === 0
+      ) {
+        throw new SaynaValidationError(
+          `hooks[${i}].host must be a non-empty string`
+        );
       }
-      if (!hook.url || typeof hook.url !== "string" || hook.url.trim().length === 0) {
-        throw new SaynaValidationError(`hooks[${i}].url must be a non-empty string`);
+      if (
+        !hook.url ||
+        typeof hook.url !== "string" ||
+        hook.url.trim().length === 0
+      ) {
+        throw new SaynaValidationError(
+          `hooks[${i}].url must be a non-empty string`
+        );
       }
     }
 
@@ -918,7 +969,9 @@ export class SaynaClient {
 
     for (const [i, host] of hosts.entries()) {
       if (!host || typeof host !== "string" || host.trim().length === 0) {
-        throw new SaynaValidationError(`hosts[${i}] must be a non-empty string`);
+        throw new SaynaValidationError(
+          `hosts[${i}] must be a non-empty string`
+        );
       }
     }
 
@@ -968,5 +1021,14 @@ export class SaynaClient {
    */
   get saynaParticipantName(): string | undefined {
     return this._saynaParticipantName;
+  }
+
+  /**
+   * Session identifier returned by the server.
+   * This can be used to download recordings or correlate session data.
+   * The value is available after the connection is ready.
+   */
+  get streamId(): string | undefined {
+    return this._streamId;
   }
 }

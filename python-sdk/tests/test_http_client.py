@@ -191,9 +191,11 @@ class TestSaynaHttpClientGet:
             return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
         )
 
-        with patch.object(client, "_ensure_session", return_value=mock_session):
-            with pytest.raises(SaynaServerError, match="Server error"):
-                await client.get("/health")
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaServerError, match="Server error"),
+        ):
+            await client.get("/health")
 
     @pytest.mark.asyncio
     async def test_get_client_error(self) -> None:
@@ -210,9 +212,11 @@ class TestSaynaHttpClientGet:
             return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
         )
 
-        with patch.object(client, "_ensure_session", return_value=mock_session):
-            with pytest.raises(SaynaValidationError, match="Invalid request"):
-                await client.get("/health")
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaValidationError, match="Invalid request"),
+        ):
+            await client.get("/health")
 
 
 class TestSaynaHttpClientPost:
@@ -277,9 +281,11 @@ class TestSaynaHttpClientPost:
             return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
         )
 
-        with patch.object(client, "_ensure_session", return_value=mock_session):
-            with pytest.raises(SaynaServerError, match="Service down"):
-                await client.post("/action")
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaServerError, match="Service down"),
+        ):
+            await client.post("/action")
 
 
 class TestSaynaHttpClientPostBinary:
@@ -324,9 +330,11 @@ class TestSaynaHttpClientPostBinary:
             return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
         )
 
-        with patch.object(client, "_ensure_session", return_value=mock_session):
-            with pytest.raises(SaynaServerError, match="Processing failed"):
-                await client.post_binary("/speak")
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaServerError, match="Processing failed"),
+        ):
+            await client.post_binary("/speak")
 
     @pytest.mark.asyncio
     async def test_post_binary_server_error_without_json(self) -> None:
@@ -343,9 +351,11 @@ class TestSaynaHttpClientPostBinary:
             return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
         )
 
-        with patch.object(client, "_ensure_session", return_value=mock_session):
-            with pytest.raises(SaynaServerError, match="HTTP 500"):
-                await client.post_binary("/speak")
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaServerError, match="HTTP 500"),
+        ):
+            await client.post_binary("/speak")
 
     @pytest.mark.asyncio
     async def test_post_binary_client_error(self) -> None:
@@ -362,9 +372,11 @@ class TestSaynaHttpClientPostBinary:
             return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
         )
 
-        with patch.object(client, "_ensure_session", return_value=mock_session):
-            with pytest.raises(SaynaValidationError, match="Invalid text"):
-                await client.post_binary("/speak")
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaValidationError, match="Invalid text"),
+        ):
+            await client.post_binary("/speak")
 
 
 class TestSaynaHttpClientResponseHandling:

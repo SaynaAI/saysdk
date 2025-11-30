@@ -49,10 +49,6 @@ class LiveKitConfig(BaseModel):
     enable_recording: Optional[bool] = Field(
         default=False, description="Whether to enable session recording"
     )
-    recording_file_key: Optional[str] = Field(
-        default=None,
-        description="Storage key for the recording file (required when enable_recording is true)",
-    )
     sayna_participant_identity: Optional[str] = Field(
         default="sayna-ai", description="Identity assigned to the agent participant"
     )
@@ -74,6 +70,10 @@ class ConfigMessage(BaseModel):
     """Configuration message sent to initialize the Sayna WebSocket connection."""
 
     type: Literal["config"] = "config"
+    stream_id: Optional[str] = Field(
+        default=None,
+        description="Session identifier used for recording paths; server generates a UUID when omitted",
+    )
     audio: Optional[bool] = Field(default=True, description="Whether audio streaming is enabled")
     stt_config: Optional[STTConfig] = Field(
         default=None, description="Speech-to-text configuration (required when audio=true)"
@@ -124,6 +124,10 @@ class ReadyMessage(BaseModel):
     """Message received when the Sayna connection is ready."""
 
     type: Literal["ready"] = "ready"
+    stream_id: Optional[str] = Field(
+        default=None,
+        description="Session identifier returned by server; may be auto-generated if not provided in config",
+    )
     livekit_room_name: Optional[str] = Field(
         default=None, description="LiveKit room name (present only when LiveKit is enabled)"
     )

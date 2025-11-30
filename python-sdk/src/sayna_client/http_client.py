@@ -118,6 +118,44 @@ class SaynaHttpClient:
         async with session.delete(url, json=json_data) as response:
             return await self._handle_response(response)
 
+    async def get_binary(
+        self,
+        endpoint: str,
+        params: Optional[dict[str, Any]] = None,
+    ) -> tuple[bytes, dict[str, str]]:
+        """Make a GET request expecting binary response.
+
+        Args:
+            endpoint: API endpoint path (e.g., '/recording/abc123')
+            params: Optional query parameters
+
+        Returns:
+            Tuple of (binary_data, response_headers)
+
+        Raises:
+            SaynaServerError: If the server returns an error
+            SaynaValidationError: If the request is invalid
+        """
+        session = await self._ensure_session()
+        url = f"{self.base_url}{endpoint}"
+
+        async with session.get(url, params=params) as response:
+            if response.status >= _HTTP_CLIENT_ERROR:
+                # Try to parse error message
+                try:
+                    error_data = await response.json()
+                    error_msg = error_data.get("error", f"HTTP {response.status}")
+                except Exception:
+                    error_msg = f"HTTP {response.status}: {response.reason}"
+
+                if response.status >= _HTTP_SERVER_ERROR:
+                    raise SaynaServerError(error_msg)
+                raise SaynaValidationError(error_msg)
+
+            binary_data = await response.read()
+            headers = dict(response.headers)
+            return binary_data, headers
+
     async def post_binary(
         self,
         endpoint: str,

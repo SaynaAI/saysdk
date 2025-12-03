@@ -28,6 +28,6 @@ if (!buildResult.success) {
 }
 
 console.log("📝 Generating TypeScript declarations...");
-await $`tsc --project tsconfig.json`;
+await $`tsc --project tsconfig.build.json`;
 
 console.log("✅ Build complete!");

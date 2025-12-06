@@ -8,6 +8,8 @@ import type {
   SendMessageMessage,
   STTResultMessage,
   ErrorMessage,
+  SipTransferErrorMessage,
+  SipTransferMessage,
   OutgoingMessage,
   SaynaMessage,
   Participant,
@@ -65,6 +67,13 @@ export type TTSPlaybackCompleteHandler = (
 ) => void | Promise<void>;
 
 /**
+ * Event handler for SIP transfer specific errors.
+ */
+export type SipTransferErrorHandler = (
+  error: SipTransferErrorMessage
+) => void | Promise<void>;
+
+/**
  * Client for connecting to Sayna WebSocket server for real-time voice interactions.
  *
  * @example
@@ -104,6 +113,7 @@ export class SaynaClient {
   private messageCallback?: MessageHandler;
   private participantDisconnectedCallback?: ParticipantDisconnectedHandler;
   private ttsPlaybackCompleteCallback?: TTSPlaybackCompleteHandler;
+  private sipTransferErrorCallback?: SipTransferErrorHandler;
   private readyPromiseResolve?: () => void;
   private readyPromiseReject?: (error: Error) => void;
 
@@ -332,6 +342,19 @@ export class SaynaClient {
           break;
         }
 
+        case "sip_transfer_error": {
+          const sipTransferError = data;
+          if (this.sipTransferErrorCallback) {
+            await this.sipTransferErrorCallback(sipTransferError);
+          } else if (this.errorCallback) {
+            await this.errorCallback({
+              type: "error",
+              message: sipTransferError.message,
+            });
+          }
+          break;
+        }
+
         case "message": {
           const messageData = data;
           if (this.messageCallback) {
@@ -358,6 +381,16 @@ export class SaynaClient {
             );
           }
           break;
+        }
+
+        default: {
+          const unknownMessage = data as { type: string };
+          const errorMessage = `Unknown message type received: ${unknownMessage.type}`;
+          if (this.errorCallback) {
+            await this.errorCallback({ type: "error", message: errorMessage });
+          } else {
+            console.warn(errorMessage);
+          }
         }
       }
     } catch (error) {
@@ -582,6 +615,15 @@ export class SaynaClient {
   }
 
   /**
+   * Registers a callback for SIP transfer specific errors.
+   *
+   * @param callback - Function to call when a SIP transfer error message is received
+   */
+  registerOnSipTransferError(callback: SipTransferErrorHandler): void {
+    this.sipTransferErrorCallback = callback;
+  }
+
+  /**
    * Sends text to be synthesized as speech.
    *
    * @param text - Text to synthesize
@@ -701,6 +743,41 @@ export class SaynaClient {
       this.websocket.send(JSON.stringify(sendMsg));
     } catch (error) {
       throw new SaynaConnectionError("Failed to send message", error);
+    }
+  }
+
+  /**
+   * Initiates a SIP transfer for the active LiveKit session.
+   *
+   * @param transferTo - Destination phone number or extension to transfer to
+   * @throws {SaynaNotConnectedError} If not connected
+   * @throws {SaynaNotReadyError} If connection is not ready
+   * @throws {SaynaValidationError} If transferTo is not a non-empty string
+   */
+  sipTransfer(transferTo: string): void {
+    if (!this.isConnected || !this.websocket) {
+      throw new SaynaNotConnectedError();
+    }
+
+    if (!this.isReady) {
+      throw new SaynaNotReadyError();
+    }
+
+    if (typeof transferTo !== "string" || transferTo.trim().length === 0) {
+      throw new SaynaValidationError("transfer_to must be a non-empty string");
+    }
+
+    try {
+      const sipTransferMessage: SipTransferMessage = {
+        type: "sip_transfer",
+        transfer_to: transferTo.trim(),
+      };
+      this.websocket.send(JSON.stringify(sipTransferMessage));
+    } catch (error) {
+      throw new SaynaConnectionError(
+        "Failed to send SIP transfer command",
+        error
+      );
     }
   }
 

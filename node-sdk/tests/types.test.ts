@@ -11,6 +11,8 @@ import type {
   STTResultMessage,
   ErrorMessage,
   Pronunciation,
+  SipTransferMessage,
+  SipTransferErrorMessage,
 } from "../src/types";
 
 describe("Type Validation", () => {
@@ -48,6 +50,18 @@ describe("Type Validation", () => {
     expect(config.pronunciations).toEqual([]);
   });
 
+  test("TTSConfig should allow minimal configuration", () => {
+    const config: TTSConfig = {
+      provider: "deepgram",
+      model: "aura-asteria-en",
+    };
+
+    expect(config.provider).toBe("deepgram");
+    expect(config.model).toBe("aura-asteria-en");
+    expect(config.connection_timeout).toBeUndefined();
+    expect(config.pronunciations).toBeUndefined();
+  });
+
   test("TTSConfig with pronunciations", () => {
     const pronunciations: Pronunciation[] = [
       { word: "Sayna", pronunciation: "say-nah" },
@@ -65,8 +79,8 @@ describe("Type Validation", () => {
       pronunciations,
     };
 
-    expect(config.pronunciations.length).toBe(1);
-    expect(config.pronunciations[0]?.word).toBe("Sayna");
+    expect(config.pronunciations?.length).toBe(1);
+    expect(config.pronunciations?.[0]?.word).toBe("Sayna");
   });
 
   test("LiveKitConfig should have correct structure", () => {
@@ -174,6 +188,18 @@ describe("Message Types", () => {
     expect(msg.livekit_url).toBe("wss://livekit.example.com");
   });
 
+  test("ReadyMessage should allow missing LiveKit fields when not configured", () => {
+    const msg: ReadyMessage = {
+      type: "ready",
+      stream_id: "stream-123",
+    };
+
+    expect(msg.type).toBe("ready");
+    expect(msg.livekit_room_name).toBeUndefined();
+    expect(msg.livekit_url).toBeUndefined();
+    expect(msg.stream_id).toBe("stream-123");
+  });
+
   test("STTResultMessage should have correct structure", () => {
     const msg: STTResultMessage = {
       type: "stt_result",
@@ -196,5 +222,25 @@ describe("Message Types", () => {
 
     expect(msg.type).toBe("error");
     expect(msg.message).toBe("Something went wrong");
+  });
+
+  test("SipTransferMessage should have correct structure", () => {
+    const msg: SipTransferMessage = {
+      type: "sip_transfer",
+      transfer_to: "+1234567890",
+    };
+
+    expect(msg.type).toBe("sip_transfer");
+    expect(msg.transfer_to).toBe("+1234567890");
+  });
+
+  test("SipTransferErrorMessage should have correct structure", () => {
+    const msg: SipTransferErrorMessage = {
+      type: "sip_transfer_error",
+      message: "No SIP participant found",
+    };
+
+    expect(msg.type).toBe("sip_transfer_error");
+    expect(msg.message).toBe("No SIP participant found");
   });
 });

@@ -44,6 +44,21 @@ describe("SaynaClient Initialization", () => {
     expect(client.ready).toBe(false);
   });
 
+  test("should allow minimal TTS config without optional fields", () => {
+    const minimalTtsConfig: TTSConfig = {
+      provider: "deepgram",
+      model: "aura-asteria-en",
+    };
+
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      minimalTtsConfig
+    );
+
+    expect(client).toBeDefined();
+  });
+
   test("should initialize with custom WebSocket URL", () => {
     const client = new SaynaClient(
       "wss://custom.sayna.com/ws",
@@ -324,6 +339,21 @@ describe("SaynaClient Event Handlers", () => {
     client.registerOnTtsPlaybackComplete(handler);
     expect(client).toBeDefined();
   });
+
+  test("should register SIP transfer error handler", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const handler = (error: any) => {
+      console.log(error);
+    };
+
+    client.registerOnSipTransferError(handler);
+    expect(client).toBeDefined();
+  });
 });
 
 describe("SaynaClient REST API Methods", () => {
@@ -364,6 +394,99 @@ describe("SaynaClient REST API Methods", () => {
   });
 });
 
+describe("SaynaClient SIP Transfer", () => {
+  test("should send sip_transfer payload", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const sentPayloads: string[] = [];
+    (client as any).websocket = {
+      send: (payload: string) => sentPayloads.push(payload),
+    } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    client.sipTransfer(" 1001 ");
+
+    expect(sentPayloads.length).toBe(1);
+    const payload = JSON.parse(sentPayloads[0] ?? "{}");
+    expect(payload.type).toBe("sip_transfer");
+    expect(payload.transfer_to).toBe("1001");
+  });
+
+  test("should validate transferTo is non-empty string", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+    (client as any).websocket = { send: () => {} } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    expect(() => client.sipTransfer("   ")).toThrow(SaynaValidationError);
+  });
+});
+
+describe("SaynaClient message handling", () => {
+  test("should handle sip_transfer_error with dedicated callback", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    let receivedMessage: string | undefined;
+    client.registerOnSipTransferError((error) => {
+      receivedMessage = error.message;
+    });
+
+    await (client as any).handleJsonMessage({
+      type: "sip_transfer_error",
+      message: "No SIP participant found",
+    });
+
+    expect(receivedMessage).toBe("No SIP participant found");
+  });
+
+  test("should mark ready even without LiveKit fields", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await (client as any).handleJsonMessage({
+      type: "ready",
+      stream_id: "stream-123",
+    });
+
+    expect(client.ready).toBe(true);
+    expect(client.livekitUrl).toBeUndefined();
+    expect(client.livekitRoomName).toBeUndefined();
+    expect(client.streamId).toBe("stream-123");
+  });
+
+  test("should surface unknown message types via error callback", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    let errorMessage: string | undefined;
+    client.registerOnError((error) => {
+      errorMessage = error.message;
+    });
+
+    await (client as any).handleJsonMessage({ type: "unknown" } as any);
+
+    expect(errorMessage).toContain("Unknown message type");
+  });
+});
 describe("SaynaClient SIP Hooks Methods", () => {
   test("should validate setSipHooks hooks is an array", () => {
     const client = new SaynaClient(

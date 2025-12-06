@@ -34,6 +34,8 @@ from sayna_client.types import (
     SetSipHooksRequest,
     SipHook,
     SipHooksResponse,
+    SipTransferErrorMessage,
+    SipTransferMessage,
     SpeakMessage,
     SpeakRequest,
     STTConfig,
@@ -96,7 +98,7 @@ class SaynaClient:
             stt_config: Speech-to-text provider configuration (required when without_audio=False)
             tts_config: Text-to-speech provider configuration (required when without_audio=False)
             livekit_config: Optional LiveKit room configuration
-            without_audio: If True, disables audio streaming (default: False)
+            without_audio: If True, disables audio streaming (sends audio=False for control-only sessions)
             api_key: Optional API key for authentication (defaults to SAYNA_API_KEY env)
             stream_id: Optional session identifier for recording paths; server generates a UUID when omitted
 
@@ -112,10 +114,11 @@ class SaynaClient:
             raise SaynaValidationError(msg)
 
         # Validate audio config requirements
-        if not without_audio and (stt_config is None or tts_config is None):
+        audio_enabled = not without_audio
+        if audio_enabled and (stt_config is None or tts_config is None):
             msg = (
-                "stt_config and tts_config are required when without_audio=False (audio streaming enabled). "
-                "Either provide both configs or set without_audio=True for non-audio use cases."
+                "stt_config and tts_config are required when audio is enabled. "
+                "Either provide both configs or set without_audio=True (audio=False) for control-only sessions."
             )
             raise SaynaValidationError(msg)
 
@@ -124,6 +127,7 @@ class SaynaClient:
         self.tts_config = tts_config
         self.livekit_config = livekit_config
         self.without_audio = without_audio
+        self.audio_enabled = audio_enabled
         self.api_key = api_key or os.environ.get("SAYNA_API_KEY")
         self.stream_id = stream_id
 
@@ -160,6 +164,7 @@ class SaynaClient:
         self._on_stt_result: Optional[Callable[[STTResultMessage], Any]] = None
         self._on_message: Optional[Callable[[MessageMessage], Any]] = None
         self._on_error: Optional[Callable[[ErrorMessage], Any]] = None
+        self._on_sip_transfer_error: Optional[Callable[[SipTransferErrorMessage], Any]] = None
         self._on_participant_disconnected: Optional[
             Callable[[ParticipantDisconnectedMessage], Any]
         ] = None
@@ -465,7 +470,7 @@ class SaynaClient:
             # Send config message
             config = ConfigMessage(
                 stream_id=self.stream_id,
-                audio=not self.without_audio,
+                audio=self.audio_enabled,
                 stt_config=self.stt_config,
                 tts_config=self.tts_config,
                 livekit=self.livekit_config,
@@ -644,6 +649,26 @@ class SaynaClient:
         msg = SendMessageMessage(message=message, role=role, topic=topic, debug=debug)
         await self._send_json(msg.model_dump(exclude_none=True))
 
+    async def sip_transfer(self, transfer_to: str) -> None:
+        """Initiate a SIP transfer for the active LiveKit session.
+
+        Requires LiveKit to be configured and an active SIP participant in the room.
+        """
+        self._check_ready()
+        if not isinstance(transfer_to, str) or not transfer_to.strip():
+            msg = "transfer_to must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        message = SipTransferMessage(transfer_to=transfer_to.strip())
+        try:
+            await self._send_json(message.model_dump(exclude_none=True))
+        except (SaynaNotConnectedError, SaynaNotReadyError):
+            raise
+        except Exception as e:  # pragma: no cover - defensive logging for network errors
+            logger.exception("Failed to send sip_transfer message: %s", e)
+            msg = "Failed to send sip_transfer message"
+            raise SaynaConnectionError(msg, cause=e) from e
+
     async def on_audio_input(self, audio_data: bytes) -> None:
         """Send audio data to the server for speech recognition.
 
@@ -701,6 +726,12 @@ class SaynaClient:
     def register_on_error(self, callback: Callable[[ErrorMessage], Any]) -> None:
         """Register callback for error events."""
         self._on_error = callback
+
+    def register_on_sip_transfer_error(
+        self, callback: Callable[[SipTransferErrorMessage], Any]
+    ) -> None:
+        """Register callback for SIP transfer error events."""
+        self._on_sip_transfer_error = callback
 
     def register_on_participant_disconnected(
         self, callback: Callable[[ParticipantDisconnectedMessage], Any]
@@ -807,6 +838,8 @@ class SaynaClient:
                 await self._handle_message(MessageMessage(**parsed))
             elif msg_type == "error":
                 await self._handle_error(ErrorMessage(**parsed))
+            elif msg_type == "sip_transfer_error":
+                await self._handle_sip_transfer_error(SipTransferErrorMessage(**parsed))
             elif msg_type == "participant_disconnected":
                 await self._handle_participant_disconnected(
                     ParticipantDisconnectedMessage(**parsed)
@@ -814,7 +847,7 @@ class SaynaClient:
             elif msg_type == "tts_playback_complete":
                 await self._handle_tts_playback_complete(TTSPlaybackCompleteMessage(**parsed))
             else:
-                logger.warning("Unknown message type: %s", msg_type)
+                logger.warning("Unknown message type: %s; payload=%s", msg_type, parsed)
 
         except ValidationError as e:
             logger.exception("Failed to parse message: %s", e)
@@ -841,7 +874,10 @@ class SaynaClient:
         self._sayna_participant_name = message.sayna_participant_name
         self._stream_id = message.stream_id
 
-        logger.info("Ready - LiveKit room: %s", self._livekit_room_name)
+        if self._livekit_room_name:
+            logger.info("Ready - LiveKit room: %s", self._livekit_room_name)
+        else:
+            logger.info("Ready - LiveKit not configured for this session")
 
         if self._on_ready:
             try:
@@ -881,6 +917,17 @@ class SaynaClient:
                     await result
             except Exception as e:
                 logger.exception("Error in error callback: %s", e)
+
+    async def _handle_sip_transfer_error(self, message: SipTransferErrorMessage) -> None:
+        """Handle SIP transfer-specific error message."""
+        logger.error("SIP transfer error: %s", message.message)
+        if self._on_sip_transfer_error:
+            try:
+                result = self._on_sip_transfer_error(message)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                logger.exception("Error in SIP transfer error callback: %s", e)
 
     async def _handle_participant_disconnected(
         self, message: ParticipantDisconnectedMessage

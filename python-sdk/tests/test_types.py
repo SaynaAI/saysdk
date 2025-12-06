@@ -11,6 +11,8 @@ from sayna_client.types import (
     Pronunciation,
     ReadyMessage,
     SendMessageMessage,
+    SipTransferErrorMessage,
+    SipTransferMessage,
     SpeakMessage,
     STTConfig,
     STTResultMessage,
@@ -78,6 +80,17 @@ class TestTTSConfig:
         assert len(config.pronunciations) == 1
         assert config.pronunciations[0].word == "Sayna"
 
+    def test_minimal_tts_config(self) -> None:
+        """Test that minimal doc-style TTS config is accepted."""
+        config = TTSConfig(
+            provider="deepgram",
+            model="aura-asteria-en",
+        )
+        assert config.speaking_rate == 1.0
+        assert config.audio_format is None
+        assert config.sample_rate is None
+        assert config.pronunciations == []
+
 
 class TestLiveKitConfig:
     """Tests for LiveKitConfig model."""
@@ -134,6 +147,14 @@ class TestMessages:
         assert msg.type == "config"
         assert msg.audio is True
         assert msg.stt_config.provider == "deepgram"
+
+    def test_config_message_control_only(self) -> None:
+        """Config should allow control-only sessions without audio configs."""
+        msg = ConfigMessage(audio=False)
+        assert msg.type == "config"
+        assert msg.audio is False
+        assert msg.stt_config is None
+        assert msg.tts_config is None
 
     def test_speak_message(self) -> None:
         """Test creating a speak message."""
@@ -194,3 +215,22 @@ class TestMessages:
         msg = ErrorMessage(message="Something went wrong")
         assert msg.type == "error"
         assert msg.message == "Something went wrong"
+
+    def test_ready_message_without_livekit_fields(self) -> None:
+        """Ready message should allow missing LiveKit details when not configured."""
+        msg = ReadyMessage()
+        assert msg.type == "ready"
+        assert msg.livekit_room_name is None
+        assert msg.livekit_url is None
+
+    def test_sip_transfer_message(self) -> None:
+        """Test creating a SIP transfer message."""
+        msg = SipTransferMessage(transfer_to="+1234567890")
+        assert msg.type == "sip_transfer"
+        assert msg.transfer_to == "+1234567890"
+
+    def test_sip_transfer_error_message(self) -> None:
+        """Test parsing a SIP transfer error message."""
+        msg = SipTransferErrorMessage(message="No SIP participant found")
+        assert msg.type == "sip_transfer_error"
+        assert msg.message == "No SIP participant found"

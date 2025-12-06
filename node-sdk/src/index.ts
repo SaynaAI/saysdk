@@ -13,8 +13,8 @@ export * from "./webhook-receiver";
  * instantiation and connection, returning a ready-to-use client.
  *
  * @param url - The Sayna server URL (e.g., "https://api.sayna.ai")
- * @param sttConfig - Speech-to-text configuration
- * @param ttsConfig - Text-to-speech configuration
+ * @param sttConfig - Speech-to-text configuration (required when withoutAudio=false)
+ * @param ttsConfig - Text-to-speech configuration (required when withoutAudio=false)
  * @param livekitConfig - Optional LiveKit room configuration
  * @param withoutAudio - If true, disables audio streaming (default: false)
  * @param apiKey - Optional API key used to authorize HTTP and WebSocket calls (defaults to SAYNA_API_KEY env)
@@ -67,8 +67,8 @@ export * from "./webhook-receiver";
  */
 export async function saynaConnect(
   url: string,
-  sttConfig: STTConfig,
-  ttsConfig: TTSConfig,
+  sttConfig?: STTConfig,
+  ttsConfig?: TTSConfig,
   livekitConfig?: LiveKitConfig,
   withoutAudio: boolean = false,
   apiKey?: string

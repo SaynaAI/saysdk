@@ -25,7 +25,7 @@ export interface Pronunciation {
   /** The word to be pronounced differently */
   word: string;
   /** Phonetic pronunciation or alternative spelling */
-  pronunciation: string;
+ pronunciation: string;
 }
 
 /**
@@ -34,22 +34,43 @@ export interface Pronunciation {
 export interface TTSConfig {
   /** The TTS provider to use (e.g., "elevenlabs", "google") */
   provider: string;
-  /** Voice identifier for the selected provider */
-  voice_id: string;
-  /** Speech rate multiplier (e.g., 1.0 for normal, 1.5 for faster) */
-  speaking_rate: number;
-  /** Audio format for TTS output (e.g., "mp3", "pcm") */
-  audio_format: string;
-  /** Audio sample rate in Hz (e.g., 16000, 44100) */
-  sample_rate: number;
-  /** Connection timeout in milliseconds */
-  connection_timeout: number;
-  /** Request timeout in milliseconds */
-  request_timeout: number;
+  /**
+   * Voice identifier for the selected provider.
+   * Optional because some providers expose defaults or infer from the model.
+   */
+  voice_id?: string;
+  /**
+   * Speech rate multiplier (e.g., 1.0 for normal, 1.5 for faster).
+   * Optional to match spec defaults (server defaults to 1.0 when omitted).
+   */
+  speaking_rate?: number;
+  /**
+   * Audio format for TTS output (e.g., "mp3", "pcm").
+   * Optional; falls back to provider defaults when not provided.
+   */
+  audio_format?: string;
+  /**
+   * Audio sample rate in Hz (e.g., 16000, 44100).
+   * Optional; provider default is used when omitted.
+   */
+  sample_rate?: number;
+  /**
+   * Connection timeout in seconds.
+   * Optional because the server applies its own defaults when the field is omitted.
+   */
+  connection_timeout?: number;
+  /**
+   * Request timeout in seconds.
+   * Optional because the server applies its own defaults when the field is omitted.
+   */
+  request_timeout?: number;
   /** TTS model identifier to use */
   model: string;
-  /** Custom pronunciation overrides */
-  pronunciations: Pronunciation[];
+  /**
+   * Custom pronunciation overrides.
+   * Optional so minimal payloads from the spec are accepted; defaults to an empty list when absent.
+   */
+  pronunciations?: Pronunciation[];
 }
 
 /**
@@ -58,13 +79,13 @@ export interface TTSConfig {
 export interface LiveKitConfig {
   /** LiveKit room name to join */
   room_name: string;
-  /** Whether to enable session recording */
+  /** Whether to enable session recording (defaults to false) */
   enable_recording?: boolean;
   /** Identity assigned to the agent participant (defaults to "sayna-ai") */
   sayna_participant_identity?: string;
   /** Display name for the agent participant (defaults to "Sayna AI") */
   sayna_participant_name?: string;
-  /** Optional list of participant identities to monitor; empty list means "all participants" */
+  /** Optional list of participant identities to monitor; defaults to empty array (all participants) */
   listen_participants?: string[];
 }
 
@@ -125,6 +146,16 @@ export interface SendMessageMessage {
 }
 
 /**
+ * Message to request a SIP call transfer for the active LiveKit session.
+ * LiveKit must be configured and a SIP participant must be active for this to succeed.
+ */
+export interface SipTransferMessage {
+  type: "sip_transfer";
+  /** Destination phone number or extension to transfer to */
+  transfer_to: string;
+}
+
+/**
  * Message received when the Sayna connection is ready.
  */
 export interface ReadyMessage {
@@ -133,11 +164,11 @@ export interface ReadyMessage {
   stream_id?: string;
   /** LiveKit room name acknowledged by the server (present only when LiveKit is enabled) */
   livekit_room_name?: string;
-  /** LiveKit WebSocket URL configured on the server */
-  livekit_url: string;
-  /** Identity assigned to the agent participant when LiveKit is enabled */
+  /** LiveKit WebSocket URL configured on the server (only present when LiveKit is enabled) */
+  livekit_url?: string;
+  /** Identity assigned to the agent participant when LiveKit is enabled (only present when LiveKit is enabled) */
   sayna_participant_identity?: string;
-  /** Display name assigned to the agent participant when LiveKit is enabled */
+  /** Display name assigned to the agent participant when LiveKit is enabled (only present when LiveKit is enabled) */
   sayna_participant_name?: string;
 }
 
@@ -162,6 +193,15 @@ export interface STTResultMessage {
 export interface ErrorMessage {
   type: "error";
   /** Error description */
+  message: string;
+}
+
+/**
+ * SIP transfer specific error message from the Sayna server.
+ */
+export interface SipTransferErrorMessage {
+  type: "sip_transfer_error";
+  /** Human-readable error description */
   message: string;
 }
 
@@ -231,6 +271,7 @@ export type OutgoingMessage =
   | ReadyMessage
   | STTResultMessage
   | ErrorMessage
+  | SipTransferErrorMessage
   | MessageMessage
   | ParticipantDisconnectedMessage
   | TTSPlaybackCompleteMessage;

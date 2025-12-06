@@ -1,10 +1,13 @@
 """Tests for SaynaClient class."""
 
+from typing import Any
+
 import pytest
 
 from sayna_client import (
     SaynaClient,
     SaynaValidationError,
+    SipTransferErrorMessage,
     STTConfig,
     TTSConfig,
 )
@@ -128,6 +131,81 @@ class TestSaynaClientProperties:
         assert client.livekit_url is None
         assert client.sayna_participant_identity is None
         assert client.sayna_participant_name is None
+
+    def test_control_only_session_allows_missing_audio_configs(self) -> None:
+        """Control-only sessions (audio=False) should not require STT/TTS configs."""
+        client = SaynaClient(url="https://api.example.com", without_audio=True)
+        assert not client.audio_enabled
+        assert client.stt_config is None
+        assert client.tts_config is None
+
+    def test_audio_enabled_requires_configs(self) -> None:
+        """Audio-enabled sessions must include STT and TTS configs."""
+        with pytest.raises(SaynaValidationError, match="stt_config and tts_config are required"):
+            SaynaClient(url="https://api.example.com")
+
+
+class TestSipTransfer:
+    """Tests for SIP transfer support."""
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_sends_payload(self) -> None:
+        """sip_transfer should emit the correct message payload."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        client._connected = True
+        client._ready = True
+
+        sent: dict[str, Any] = {}
+
+        async def fake_send_json(data: dict[str, Any]) -> None:
+            sent.update(data)
+
+        client._send_json = fake_send_json  # type: ignore[assignment]
+
+        await client.sip_transfer("+1234567890")
+
+        assert sent == {"type": "sip_transfer", "transfer_to": "+1234567890"}
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_validates_transfer_to(self) -> None:
+        """Empty transfer targets are rejected."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        client._connected = True
+        client._ready = True
+
+        with pytest.raises(SaynaValidationError, match="transfer_to must be a non-empty string"):
+            await client.sip_transfer(" ")
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_error_callback(self) -> None:
+        """sip_transfer_error messages should trigger the specific callback."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        received: list[SipTransferErrorMessage] = []
+
+        async def on_transfer_error(message: SipTransferErrorMessage) -> None:
+            received.append(message)
+
+        client.register_on_sip_transfer_error(on_transfer_error)
+
+        await client._handle_text_message(
+            '{"type": "sip_transfer_error", "message": "No SIP participant found"}'
+        )
+
+        assert len(received) == 1
+        assert received[0].message == "No SIP participant found"
 
 
 # TODO: Add integration tests with mock WebSocket server:

@@ -28,14 +28,42 @@ class TTSConfig(BaseModel):
     """Text-to-Speech (TTS) configuration options."""
 
     provider: str = Field(..., description="The TTS provider to use (e.g., 'elevenlabs', 'google')")
-    voice_id: str = Field(..., description="Voice identifier for the selected provider")
-    speaking_rate: float = Field(
-        ..., description="Speech rate multiplier (e.g., 1.0 for normal, 1.5 for faster)"
+    voice_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Voice identifier for the selected provider. Optional when provider supplies a default."
+        ),
     )
-    audio_format: str = Field(..., description="Audio format for TTS output (e.g., 'mp3', 'pcm')")
-    sample_rate: int = Field(..., description="Audio sample rate in Hz (e.g., 16000, 44100)")
-    connection_timeout: int = Field(..., description="Connection timeout in milliseconds")
-    request_timeout: int = Field(..., description="Request timeout in milliseconds")
+    speaking_rate: float = Field(
+        default=1.0,
+        description=(
+            "Speech rate multiplier (e.g., 1.0 for normal, 1.5 for faster). "
+            "Defaults to 1.0 when omitted to match documented examples."
+        ),
+    )
+    audio_format: Optional[str] = Field(
+        default=None,
+        description="Audio format for TTS output (e.g., 'mp3', 'pcm'). Uses server defaults when omitted.",
+    )
+    sample_rate: Optional[int] = Field(
+        default=None,
+        description=(
+            "Audio sample rate in Hz (e.g., 16000, 44100). "
+            "Optional to allow minimal configs shown in the WebSocket examples."
+        ),
+    )
+    connection_timeout: Optional[int] = Field(
+        default=None,
+        description=(
+            "Connection timeout in seconds. Optional override; server default is used when omitted."
+        ),
+    )
+    request_timeout: Optional[int] = Field(
+        default=None,
+        description=(
+            "Request timeout in seconds. Optional override; server default is used when omitted."
+        ),
+    )
     model: str = Field(..., description="TTS model identifier to use")
     pronunciations: list[Pronunciation] = Field(
         default_factory=list, description="Custom pronunciation overrides"
@@ -47,17 +75,22 @@ class LiveKitConfig(BaseModel):
 
     room_name: str = Field(..., description="LiveKit room name to join")
     enable_recording: Optional[bool] = Field(
-        default=False, description="Whether to enable session recording"
+        default=False,
+        description="Whether to enable session recording (defaults to disabled when omitted)",
     )
     sayna_participant_identity: Optional[str] = Field(
-        default="sayna-ai", description="Identity assigned to the agent participant"
+        default="sayna-ai",
+        description="Identity assigned to the agent participant (defaults to 'sayna-ai')",
     )
     sayna_participant_name: Optional[str] = Field(
-        default="Sayna AI", description="Display name for the agent participant"
+        default="Sayna AI",
+        description="Display name for the agent participant (defaults to 'Sayna AI')",
     )
     listen_participants: Optional[list[str]] = Field(
         default_factory=list,
-        description="List of participant identities to monitor (empty = all participants)",
+        description=(
+            "List of participant identities to monitor. Empty list or omission means all participants."
+        ),
     )
 
 
@@ -115,6 +148,19 @@ class SendMessageMessage(BaseModel):
     debug: Optional[dict[str, Any]] = Field(default=None, description="Optional debug metadata")
 
 
+class SipTransferMessage(BaseModel):
+    """Message to initiate a SIP call transfer via LiveKit."""
+
+    type: Literal["sip_transfer"] = "sip_transfer"
+    transfer_to: str = Field(
+        ...,
+        description=(
+            "Destination to transfer the call to. Accepts E.164 numbers with '+', national numbers, "
+            "or internal extensions. LiveKit must be configured and an active SIP participant must exist."
+        ),
+    )
+
+
 # ============================================================================
 # Incoming Messages (Server -> Client)
 # ============================================================================
@@ -129,16 +175,18 @@ class ReadyMessage(BaseModel):
         description="Session identifier returned by server; may be auto-generated if not provided in config",
     )
     livekit_room_name: Optional[str] = Field(
-        default=None, description="LiveKit room name (present only when LiveKit is enabled)"
+        default=None, description="LiveKit room name (present only when LiveKit is configured)"
     )
-    livekit_url: str = Field(..., description="LiveKit WebSocket URL configured on the server")
+    livekit_url: Optional[str] = Field(
+        default=None, description="LiveKit WebSocket URL configured on the server (when available)"
+    )
     sayna_participant_identity: Optional[str] = Field(
         default=None,
-        description="Identity assigned to the agent participant when LiveKit is enabled",
+        description="Identity assigned to the agent participant when LiveKit is configured",
     )
     sayna_participant_name: Optional[str] = Field(
         default=None,
-        description="Display name assigned to the agent participant when LiveKit is enabled",
+        description="Display name assigned to the agent participant when LiveKit is configured",
     )
 
 
@@ -157,6 +205,13 @@ class ErrorMessage(BaseModel):
 
     type: Literal["error"] = "error"
     message: str = Field(..., description="Error description")
+
+
+class SipTransferErrorMessage(BaseModel):
+    """SIP transfer-specific error returned by the Sayna server."""
+
+    type: Literal["sip_transfer_error"] = "sip_transfer_error"
+    message: str = Field(..., description="Human-readable SIP transfer error description")
 
 
 class SaynaMessage(BaseModel):
@@ -371,6 +426,7 @@ OutgoingMessage = Union[
     ReadyMessage,
     STTResultMessage,
     ErrorMessage,
+    SipTransferErrorMessage,
     MessageMessage,
     ParticipantDisconnectedMessage,
     TTSPlaybackCompleteMessage,

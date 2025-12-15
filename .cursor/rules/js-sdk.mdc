@@ -1,0 +1,104 @@
+# JavaScript SDK Development Rules
+
+## Overview
+
+The JavaScript SDK (`@sayna-ai/js-sdk`) is a browser-based client for connecting to Sayna voice rooms via LiveKit. It wraps the LiveKit client SDK and handles token fetching, room connection, microphone publishing, and audio playback.
+
+## Key Files
+
+- `index.ts` - Single-file SDK containing:
+  - `SaynaClient` class - Main client wrapping LiveKit Room
+  - `TokenResponse` interface - Token response structure
+  - `SaynaClientOptions` interface - Client configuration
+
+## Build Commands
+
+```bash
+cd js-sdk
+bun install              # Install dependencies
+bun run typecheck        # Type checking (tsc --noEmit)
+bun run build            # Build to dist/ (tsc with tsconfig.build.json)
+```
+
+## Architecture
+
+### Client Flow
+1. Create `SaynaClient` with `tokenUrl` or `tokenFetchHandler`
+2. Call `client.connect()`:
+   - Fetches token from configured endpoint
+   - Creates LiveKit Room instance
+   - Connects to room with token
+   - Sets up track subscription handlers
+3. Call `client.publishMicrophone()` to enable and publish mic
+4. Remote audio plays automatically via HTMLAudioElement
+5. Call `client.disconnect()` to leave room and cleanup
+
+### Token Configuration
+
+Either provide a URL or custom handler:
+
+```typescript
+// URL-based (GET request)
+const client = new SaynaClient({
+  tokenUrl: "/sayna/token",
+  enableAudioPlayback: true,
+});
+
+// Custom handler
+const client = new SaynaClient({
+  tokenFetchHandler: async () => {
+    const response = await fetch("/sayna/token", { method: "POST" });
+    return response.json();
+  },
+});
+```
+
+### TokenResponse Structure
+```typescript
+interface TokenResponse {
+  token: string;      // LiveKit JWT token
+  liveUrl: string;    // LiveKit server URL
+  [key: string]: unknown;
+}
+```
+
+### Client Options
+```typescript
+interface SaynaClientOptions {
+  tokenUrl?: string | URL;                    // Token endpoint URL
+  tokenFetchHandler?: () => Promise<TokenResponse>;  // Custom token fetch
+  audioElement?: HTMLAudioElement;            // Existing audio element for playback
+  enableAudioPlayback?: boolean;              // Auto-attach remote audio (default: true)
+}
+```
+
+### Public API
+
+- `connect()` - Connect to room, returns Room instance
+- `publishMicrophone(options?)` - Enable mic and publish audio
+- `disconnect()` - Leave room and cleanup
+- `currentRoom` - Current Room instance or null
+- `isConnected` - Boolean connection state
+- `playbackElement` - HTMLAudioElement used for playback
+
+## Browser Environment
+
+This SDK is browser-only:
+- Requires `window` and `document` globals
+- Uses `HTMLAudioElement` for audio playback
+- Throws if used in Node.js
+
+## Dependencies
+
+- `livekit-client` - LiveKit's browser SDK (peer dependency)
+- No server-side code - purely frontend
+
+## Documentation Reference
+
+For understanding the backend that this SDK connects to:
+
+- **Server API Reference**: `../sayna/docs/api-reference.md` - REST endpoints
+- **LiveKit Integration**: `../sayna/docs/livekit_integration.md` - Room management
+- **Public Docs**: `../docs/quickstart.mdx` - User-facing quickstart
+
+The JS SDK fetches tokens from a backend endpoint that should call Sayna's `/livekit/token` endpoint. See `../sayna/docs/openapi.yaml` for the token endpoint schema.

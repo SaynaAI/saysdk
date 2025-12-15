@@ -1,0 +1,150 @@
+# Python SDK Development Rules
+
+## Overview
+
+The Python SDK (`sayna-client`) is an async Python client for Sayna's real-time voice API. It uses aiohttp for WebSocket/HTTP and Pydantic for type validation. Requires Python 3.9+.
+
+## Key Files
+
+- `src/sayna_client/client.py` - Main `SaynaClient` class with async WebSocket connection
+- `src/sayna_client/http_client.py` - REST API methods (health, voices, speak, tokens, SIP hooks)
+- `src/sayna_client/types.py` - Pydantic models for STT/TTS configs, messages, responses
+- `src/sayna_client/errors.py` - Exception classes
+- `src/sayna_client/webhook_receiver.py` - Webhook signature verification
+- `src/sayna_client/__init__.py` - Package exports
+
+## Build Commands
+
+```bash
+cd python-sdk
+
+# Setup
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
+pip install -e ".[dev]"
+
+# Testing
+pytest                                    # Run all tests
+pytest tests/test_client.py               # Single test file
+pytest --cov=sayna_client --cov-report=html  # With coverage
+
+# Type checking
+mypy src/sayna_client
+
+# Linting/Formatting (uses Ruff)
+ruff check .                              # Lint
+ruff format .                             # Format
+ruff check --fix .                        # Auto-fix
+```
+
+## Architecture Patterns
+
+### Async Client Usage
+
+```python
+import asyncio
+from sayna_client import SaynaClient, STTConfig, TTSConfig
+
+async def main():
+    client = SaynaClient(
+        url="https://api.sayna.ai",
+        stt_config=STTConfig(provider="deepgram", model="nova-2", ...),
+        tts_config=TTSConfig(provider="cartesia", voice_id="...", ...),
+        api_key="your-api-key"
+    )
+
+    # Register callbacks
+    client.register_on_stt_result(lambda result: print(result.transcript))
+    client.register_on_tts_audio(lambda audio: handle_audio(audio))
+
+    await client.connect()
+    await client.speak("Hello, world!")
+    await client.disconnect()
+
+asyncio.run(main())
+```
+
+### Event Callbacks
+- `register_on_stt_result(callback)` - STT transcription results
+- `register_on_tts_audio(callback)` - TTS audio data (bytes)
+- `register_on_error(callback)` - Error messages
+- `register_on_message(callback)` - Participant messages
+- `register_on_participant_disconnected(callback)` - Participant disconnection
+- `register_on_tts_playback_complete(callback)` - TTS completion
+
+### REST API Methods (no WebSocket needed)
+- `health()` - Health check
+- `get_voices()` - List TTS voices
+- `speak_rest(text, tts_config)` - Returns (audio_bytes, headers)
+- `get_livekit_token(room_name, participant_name, participant_identity)`
+- `get_sip_hooks()` / `set_sip_hooks(hooks)`
+
+### WebSocket API Methods (requires connection)
+- `speak(text, flush=True, allow_interruption=True)`
+- `clear()` - Clear TTS queue
+- `on_audio_input(audio_data)` - Send audio bytes for STT
+- `send_message(message, role, topic="messages", debug=None)`
+- `tts_flush(allow_interruption=True)`
+
+### Client Properties
+- `ready` - Boolean, connection ready state
+- `connected` - Boolean, WebSocket connected
+- `livekit_room_name` - Room name (when LiveKit enabled)
+- `livekit_url` - LiveKit URL
+- `sayna_participant_identity` - Agent identity
+- `sayna_participant_name` - Agent display name
+
+## Pydantic Models
+
+Key models in `types.py`:
+- `STTConfig` - Speech-to-text configuration
+- `TTSConfig` - Text-to-speech configuration
+- `LiveKitConfig` - LiveKit room configuration
+- `STTResult` - Transcription result
+- `VoiceDescriptor` - TTS voice info
+- `SipHook` - SIP webhook entry
+
+## Webhook Receiver
+
+```python
+from sayna_client import WebhookReceiver, SaynaValidationError
+
+receiver = WebhookReceiver("your-secret-key-min-16-chars")
+
+# In your web framework handler:
+try:
+    webhook = receiver.receive(headers, raw_body_string)
+    print(f"From: {webhook.from_phone_number}")
+    print(f"Room: {webhook.room.name}")
+except SaynaValidationError as e:
+    return 401, "Invalid signature"
+```
+
+## Documentation Reference
+
+For implementation details and protocol specifications:
+
+- **Server API Reference**: `../sayna/docs/api-reference.md` - Complete REST specs
+- **OpenAPI Spec**: `../sayna/docs/openapi.yaml` - Full OpenAPI 3.1 schema
+- **WebSocket Protocol**: `../sayna/docs/websocket.md` - WebSocket message protocol
+- **LiveKit Integration**: `../sayna/docs/livekit_integration.md` - Room management
+- **SIP Routing**: `../sayna/docs/sip_routing.md` - SIP webhooks
+- **Authentication**: `../sayna/docs/authentication.md` - API authentication
+
+For public user documentation:
+
+- **Public Docs**: `../docs/` - Mintlify docs source
+- **Quickstart**: `../docs/quickstart.mdx` - Getting started
+
+## Dependencies
+
+Core:
+- `aiohttp>=3.9.0` - Async HTTP/WebSocket
+- `pydantic>=2.0.0` - Data validation
+
+Dev:
+- `pytest` - Testing
+- `pytest-cov` - Coverage
+- `mypy` - Type checking
+- `ruff` - Linting and formatting

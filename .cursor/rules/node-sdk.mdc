@@ -1,0 +1,96 @@
+# Node.js SDK Development Rules
+
+## Overview
+
+The Node.js SDK (`@sayna-ai/node-sdk`) is a server-side client for real-time voice interactions via WebSocket and REST APIs. It runs on Node.js 18+ and uses Bun for development.
+
+## Key Files
+
+- `src/sayna-client.ts` - Main SaynaClient class with WebSocket connection, REST methods, and event callbacks
+- `src/types.ts` - TypeScript interfaces for STT/TTS configs, WebSocket messages, API responses
+- `src/errors.ts` - Custom error classes (SaynaValidationError, SaynaConnectionError, SaynaServerError, etc.)
+- `src/webhook-receiver.ts` - WebhookReceiver for HMAC-SHA256 signature verification of SIP webhooks
+- `src/index.ts` - Exports and `saynaConnect()` convenience function
+
+## Build Commands
+
+```bash
+cd node-sdk
+bun install              # Install dependencies
+bun run typecheck        # Type checking (tsc --noEmit)
+bun run build            # Build to dist/ (runs build.ts)
+bun run lint             # ESLint
+bun run lint:fix         # Fix lint issues
+bun run test             # Run tests (bun test)
+bun run test:watch       # Watch mode tests
+```
+
+## Architecture Patterns
+
+### Connection Flow
+1. Create `SaynaClient` with URL, STT config, TTS config
+2. Call `client.connect()` - establishes WebSocket, sends config message
+3. Wait for internal `ready` message (connect() resolves)
+4. Use API methods: `speak()`, `onAudioInput()`, `sendMessage()`, etc.
+5. Call `client.disconnect()` to clean up
+
+### Event Callbacks
+Register callbacks before or after connect:
+- `registerOnSttResult(callback)` - STT transcription results
+- `registerOnTtsAudio(callback)` - TTS audio data (ArrayBuffer)
+- `registerOnError(callback)` - Error messages
+- `registerOnMessage(callback)` - Participant messages
+- `registerOnParticipantDisconnected(callback)` - Participant disconnection
+- `registerOnTtsPlaybackComplete(callback)` - TTS playback completion
+- `registerOnSipTransferError(callback)` - SIP transfer errors
+
+### REST API Methods (no WebSocket needed)
+- `health()` - Health check
+- `getVoices()` - List TTS voices by provider
+- `speakRest(text, ttsConfig)` - One-shot TTS synthesis
+- `getLiveKitToken(roomName, participantName, participantIdentity)` - Get LiveKit JWT
+- `getSipHooks()` / `setSipHooks(hooks)` / `deleteSipHooks(hosts)` - SIP webhook management
+- `getRecording(streamId)` - Download session recording
+
+### WebSocket API Methods (requires active connection)
+- `speak(text, flush?, allowInterruption?)` - Queue TTS
+- `clear()` - Clear TTS queue
+- `onAudioInput(audioData)` - Send audio for STT
+- `sendMessage(message, role, topic?, debug?)` - Send LiveKit data message
+- `sipTransfer(transferTo)` - Initiate SIP call transfer
+
+## Documentation Reference
+
+For implementation details and protocol specifications:
+
+- **Server API Reference**: `../sayna/docs/api-reference.md` - REST endpoint specs
+- **OpenAPI Spec**: `../sayna/docs/openapi.yaml` - Full OpenAPI 3.1 schema for all endpoints
+- **WebSocket Protocol**: `../sayna/docs/websocket.md` - Complete WebSocket message protocol
+- **LiveKit Integration**: `../sayna/docs/livekit_integration.md` - LiveKit room management
+- **SIP Routing**: `../sayna/docs/sip_routing.md` - SIP webhook configuration
+- **Authentication**: `../sayna/docs/authentication.md` - API key and JWT auth
+
+For public documentation (user-facing):
+
+- **Public Docs**: `../docs/` - Mintlify documentation site source
+- **Quickstart**: `../docs/quickstart.mdx` - Getting started guide
+- **Architecture**: `../docs/guides/architecture.mdx` - System architecture
+
+## Error Handling
+
+The SDK uses custom error classes:
+- `SaynaValidationError` - Invalid parameters
+- `SaynaConnectionError` - WebSocket connection issues
+- `SaynaServerError` - Server returned error response
+- `SaynaNotConnectedError` - Method called before connect()
+- `SaynaNotReadyError` - Method called before ready message
+
+## Configuration Requirements
+
+When `withoutAudio=false` (default):
+- Both `sttConfig` and `ttsConfig` are required
+- Audio streaming is enabled
+
+When `withoutAudio=true`:
+- STT/TTS configs optional
+- LiveKit messaging only mode

@@ -1,0 +1,108 @@
+# Documentation Reference Guide
+
+## Documentation Locations
+
+This SDK repository references two documentation sources:
+
+### 1. Server Documentation (`../sayna/docs/`)
+
+The authoritative source for API specifications and protocol details. Located in the main Sayna server repository.
+
+| File | Purpose |
+|------|---------|
+| `openapi.yaml` | **OpenAPI 3.1 specification** - Complete REST API schema with all endpoints, request/response bodies, and authentication. Use this when implementing or updating SDK methods. |
+| `api-reference.md` | Human-readable API guide covering REST endpoints, WebSocket lifecycle, and configuration. |
+| `websocket.md` | **Comprehensive WebSocket protocol documentation** - Message types, connection lifecycle, STT/TTS configs, LiveKit integration, audio processing, error handling. Essential for WebSocket implementation. |
+| `authentication.md` | Authentication strategies (API key, JWT validation). |
+| `livekit_integration.md` | LiveKit room management, token generation, recording. |
+| `sip_routing.md` | SIP webhook configuration and routing. |
+| `deployment.md` | Server deployment guide. |
+
+**Provider-specific docs:**
+| File | Purpose |
+|------|---------|
+| `deepgram-stt.md` / `deepgram-tts.md` | Deepgram provider configuration |
+| `google-stt.md` / `google-tts.md` | Google Cloud Speech configuration |
+| `azure-stt.md` / `azure-tts.md` | Microsoft Azure Speech configuration |
+| `cartesia-stt.md` / `cartesia-tts.md` | Cartesia provider configuration |
+| `elevenlabs-tts.md` | ElevenLabs TTS configuration |
+
+### 2. Public Documentation (`../docs/`)
+
+User-facing documentation site (Mintlify). Located in a separate docs repository.
+
+| File | Purpose |
+|------|---------|
+| `quickstart.mdx` | Getting started guide with Docker, config examples |
+| `guides/architecture.mdx` | System architecture overview |
+| `guides/authentication.mdx` | Auth guide for end users |
+| `guides/operations.mdx` | Operational best practices |
+| `guides/sip-twilio.mdx` | Twilio SIP integration |
+| `api-reference/introduction.mdx` | API reference introduction |
+
+## When to Reference Each
+
+### Implementing New SDK Features
+1. Check `../sayna/docs/openapi.yaml` for endpoint schema
+2. Read `../sayna/docs/websocket.md` for WebSocket message format
+3. Review `../sayna/docs/api-reference.md` for behavior details
+
+### Updating SDK Documentation
+1. Keep SDK READMEs aligned with `../sayna/docs/api-reference.md`
+2. Match type definitions to `../sayna/docs/openapi.yaml` schemas
+3. Ensure examples match `../docs/quickstart.mdx` patterns
+
+### Adding Provider Support
+1. Check provider docs in `../sayna/docs/` (e.g., `google-stt.md`)
+2. Match config fields to OpenAPI schema components
+3. Document provider-specific options in SDK README
+
+## Key API Contracts from Server Docs
+
+### REST Endpoints (from openapi.yaml)
+- `GET /` - Health check → `{ "status": "OK" }`
+- `GET /voices` - List voices → `{ [provider]: Voice[] }`
+- `POST /speak` - TTS synthesis → Binary audio
+- `POST /livekit/token` - Get LiveKit JWT
+- `GET /recording/{stream_id}` - Download recording
+- `GET/POST/DELETE /sip/hooks` - SIP webhook management
+
+### WebSocket Messages (from websocket.md)
+
+**Incoming (client → server):**
+- `config` - Session configuration (STT, TTS, LiveKit)
+- `speak` - Queue TTS
+- `clear` - Clear TTS queue
+- `send_message` - LiveKit data message
+- `sip_transfer` - Initiate SIP transfer
+- Binary frames - Audio for STT
+
+**Outgoing (server → client):**
+- `ready` - Connection ready, includes LiveKit details
+- `stt_result` - Transcription result
+- `tts_playback_complete` - TTS finished
+- `message` - Participant message
+- `participant_disconnected` - Participant left
+- `error` - Error message
+- `sip_transfer_error` - SIP transfer failed
+- Binary frames - TTS audio
+
+### Configuration Schemas (from openapi.yaml components)
+
+**STTWebSocketConfig:**
+- provider, language, sample_rate, channels, punctuation, encoding, model
+
+**TTSWebSocketConfig:**
+- provider, model, voice_id?, speaking_rate?, audio_format?, sample_rate?, connection_timeout?, request_timeout?, pronunciations?
+
+**LiveKitWebSocketConfig:**
+- room_name, enable_recording?, sayna_participant_identity?, sayna_participant_name?, listen_participants?
+
+## Keeping SDKs in Sync
+
+When the server API changes:
+1. Regenerate types from `../sayna/docs/openapi.yaml`
+2. Update SDK methods to match new endpoints
+3. Update SDK READMEs with new options
+4. Add tests for new functionality
+5. Update this saysdk CLAUDE.md if architecture changes

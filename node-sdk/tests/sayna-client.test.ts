@@ -356,43 +356,279 @@ describe("SaynaClient Event Handlers", () => {
   });
 });
 
+/* eslint-disable @typescript-eslint/await-thenable */
+// Note: ESLint incorrectly flags await expect().rejects.toThrow() as awaiting non-thenable,
+// but this is the correct pattern for testing async function rejections in Bun/Jest.
 describe("SaynaClient REST API Methods", () => {
-  test("should validate speakRest parameters", () => {
+  test("should validate speakRest parameters", async () => {
     const client = new SaynaClient(
       "https://api.example.com",
       getTestSTTConfig(),
       getTestTTSConfig()
     );
 
-    expect(async () => client.speakRest("", getTestTTSConfig())).toThrow(
+    await expect(client.speakRest("", getTestTTSConfig())).rejects.toThrow(
       SaynaValidationError
     );
 
-    expect(async () => client.speakRest("   ", getTestTTSConfig())).toThrow(
+    await expect(client.speakRest("   ", getTestTTSConfig())).rejects.toThrow(
       "Text cannot be empty"
     );
   });
 
-  test("should validate getLiveKitToken parameters", () => {
+  test("should validate getLiveKitToken parameters", async () => {
     const client = new SaynaClient(
       "https://api.example.com",
       getTestSTTConfig(),
       getTestTTSConfig()
     );
 
-    expect(async () => client.getLiveKitToken("", "name", "identity")).toThrow(
+    await expect(client.getLiveKitToken("", "name", "identity")).rejects.toThrow(
       "room_name cannot be empty"
     );
 
-    expect(async () => client.getLiveKitToken("room", "", "identity")).toThrow(
+    await expect(client.getLiveKitToken("room", "", "identity")).rejects.toThrow(
       "participant_name cannot be empty"
     );
 
-    expect(async () => client.getLiveKitToken("room", "name", "")).toThrow(
+    await expect(client.getLiveKitToken("room", "name", "")).rejects.toThrow(
       "participant_identity cannot be empty"
     );
   });
+
+  test("should validate getLiveKitRoom roomName is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(client.getLiveKitRoom("")).rejects.toThrow(SaynaValidationError);
+    await expect(client.getLiveKitRoom("")).rejects.toThrow(
+      "room_name cannot be empty"
+    );
+
+    await expect(client.getLiveKitRoom("   ")).rejects.toThrow(
+      SaynaValidationError
+    );
+    await expect(client.getLiveKitRoom("   ")).rejects.toThrow(
+      "room_name cannot be empty"
+    );
+  });
+
+  test("should validate removeLiveKitParticipant roomName is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.removeLiveKitParticipant("", "user-alice-456")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.removeLiveKitParticipant("", "user-alice-456")
+    ).rejects.toThrow("room_name cannot be empty");
+
+    await expect(
+      client.removeLiveKitParticipant("   ", "user-alice-456")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.removeLiveKitParticipant("   ", "user-alice-456")
+    ).rejects.toThrow("room_name cannot be empty");
+  });
+
+  test("should validate removeLiveKitParticipant participantIdentity is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.removeLiveKitParticipant("my-room", "")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.removeLiveKitParticipant("my-room", "")
+    ).rejects.toThrow("participant_identity cannot be empty");
+
+    await expect(
+      client.removeLiveKitParticipant("my-room", "   ")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.removeLiveKitParticipant("my-room", "   ")
+    ).rejects.toThrow("participant_identity cannot be empty");
+  });
+
+  test("should validate muteLiveKitParticipantTrack roomName is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.muteLiveKitParticipantTrack("", "user-alice-456", "TR_abc123", true)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("", "user-alice-456", "TR_abc123", true)
+    ).rejects.toThrow("room_name cannot be empty");
+
+    await expect(
+      client.muteLiveKitParticipantTrack("   ", "user-alice-456", "TR_abc123", true)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("   ", "user-alice-456", "TR_abc123", true)
+    ).rejects.toThrow("room_name cannot be empty");
+  });
+
+  test("should validate muteLiveKitParticipantTrack participantIdentity is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "", "TR_abc123", true)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "", "TR_abc123", true)
+    ).rejects.toThrow("participant_identity cannot be empty");
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "   ", "TR_abc123", true)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "   ", "TR_abc123", true)
+    ).rejects.toThrow("participant_identity cannot be empty");
+  });
+
+  test("should validate muteLiveKitParticipantTrack trackSid is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "", true)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "", true)
+    ).rejects.toThrow("track_sid cannot be empty");
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "   ", true)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "   ", true)
+    ).rejects.toThrow("track_sid cannot be empty");
+  });
+
+  test("should validate muteLiveKitParticipantTrack muted is a boolean", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", "true" as any)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", "true" as any)
+    ).rejects.toThrow("muted must be a boolean");
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", 1 as any)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", 1 as any)
+    ).rejects.toThrow("muted must be a boolean");
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", null as any)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", null as any)
+    ).rejects.toThrow("muted must be a boolean");
+
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", undefined as any)
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", undefined as any)
+    ).rejects.toThrow("muted must be a boolean");
+  });
+
+  test("should validate sipTransferRest roomName is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.sipTransferRest("", "sip_participant_456", "+15551234567")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.sipTransferRest("", "sip_participant_456", "+15551234567")
+    ).rejects.toThrow("room_name cannot be empty");
+
+    await expect(
+      client.sipTransferRest("   ", "sip_participant_456", "+15551234567")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.sipTransferRest("   ", "sip_participant_456", "+15551234567")
+    ).rejects.toThrow("room_name cannot be empty");
+  });
+
+  test("should validate sipTransferRest participantIdentity is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.sipTransferRest("call-room-123", "", "+15551234567")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.sipTransferRest("call-room-123", "", "+15551234567")
+    ).rejects.toThrow("participant_identity cannot be empty");
+
+    await expect(
+      client.sipTransferRest("call-room-123", "   ", "+15551234567")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.sipTransferRest("call-room-123", "   ", "+15551234567")
+    ).rejects.toThrow("participant_identity cannot be empty");
+  });
+
+  test("should validate sipTransferRest transferTo is non-empty", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    await expect(
+      client.sipTransferRest("call-room-123", "sip_participant_456", "")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.sipTransferRest("call-room-123", "sip_participant_456", "")
+    ).rejects.toThrow("transfer_to cannot be empty");
+
+    await expect(
+      client.sipTransferRest("call-room-123", "sip_participant_456", "   ")
+    ).rejects.toThrow(SaynaValidationError);
+    await expect(
+      client.sipTransferRest("call-room-123", "sip_participant_456", "   ")
+    ).rejects.toThrow("transfer_to cannot be empty");
+  });
 });
+/* eslint-enable @typescript-eslint/await-thenable */
 
 describe("SaynaClient SIP Transfer", () => {
   test("should send sip_transfer payload", () => {

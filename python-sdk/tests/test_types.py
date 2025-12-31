@@ -8,11 +8,21 @@ from sayna_client.types import (
     ConfigMessage,
     ErrorMessage,
     LiveKitConfig,
+    LiveKitParticipantInfo,
+    LiveKitRoomDetails,
+    LiveKitRoomsResponse,
+    LiveKitRoomSummary,
+    MuteLiveKitParticipantRequest,
+    MuteLiveKitParticipantResponse,
     Pronunciation,
     ReadyMessage,
+    RemoveLiveKitParticipantRequest,
+    RemoveLiveKitParticipantResponse,
     SendMessageMessage,
     SipTransferErrorMessage,
     SipTransferMessage,
+    SipTransferRequest,
+    SipTransferResponse,
     SpeakMessage,
     STTConfig,
     STTResultMessage,
@@ -234,3 +244,517 @@ class TestMessages:
         msg = SipTransferErrorMessage(message="No SIP participant found")
         assert msg.type == "sip_transfer_error"
         assert msg.message == "No SIP participant found"
+
+
+class TestLiveKitRoomsTypes:
+    """Tests for LiveKit rooms REST API types."""
+
+    def test_livekit_room_summary(self) -> None:
+        """Test creating a LiveKitRoomSummary with sample data."""
+        room = LiveKitRoomSummary(
+            name="project1_conversation-room-123",
+            num_participants=2,
+            creation_time=1703123456,
+        )
+        assert room.name == "project1_conversation-room-123"
+        assert room.num_participants == 2
+        assert room.creation_time == 1703123456
+
+    def test_livekit_room_summary_zero_participants(self) -> None:
+        """Test LiveKitRoomSummary with zero participants."""
+        room = LiveKitRoomSummary(
+            name="project1_room-2",
+            num_participants=0,
+            creation_time=1703123789,
+        )
+        assert room.name == "project1_room-2"
+        assert room.num_participants == 0
+        assert room.creation_time == 1703123789
+
+    def test_livekit_rooms_response(self) -> None:
+        """Test creating LiveKitRoomsResponse from API payload."""
+        response = LiveKitRoomsResponse(
+            rooms=[
+                LiveKitRoomSummary(
+                    name="project1_conversation-room-123",
+                    num_participants=2,
+                    creation_time=1703123456,
+                ),
+                LiveKitRoomSummary(
+                    name="project1_room-2",
+                    num_participants=0,
+                    creation_time=1703123789,
+                ),
+            ]
+        )
+        assert len(response.rooms) == 2
+        assert response.rooms[0].name == "project1_conversation-room-123"
+        assert response.rooms[0].num_participants == 2
+        assert response.rooms[1].name == "project1_room-2"
+        assert response.rooms[1].creation_time == 1703123789
+
+    def test_livekit_rooms_response_empty(self) -> None:
+        """Test LiveKitRoomsResponse with empty rooms list."""
+        response = LiveKitRoomsResponse(rooms=[])
+        assert response.rooms == []
+        assert len(response.rooms) == 0
+
+    def test_livekit_rooms_response_from_dict(self) -> None:
+        """Test parsing LiveKitRoomsResponse from dict (as returned by API)."""
+        data = {
+            "rooms": [
+                {
+                    "name": "project1_conversation-room-123",
+                    "num_participants": 2,
+                    "creation_time": 1703123456,
+                },
+                {
+                    "name": "project1_room-2",
+                    "num_participants": 0,
+                    "creation_time": 1703123789,
+                },
+            ]
+        }
+        response = LiveKitRoomsResponse(**data)
+        assert len(response.rooms) == 2
+        assert response.rooms[0].name == "project1_conversation-room-123"
+        assert response.rooms[0].num_participants == 2
+        assert response.rooms[0].creation_time == 1703123456
+        assert response.rooms[1].name == "project1_room-2"
+        assert response.rooms[1].num_participants == 0
+        assert response.rooms[1].creation_time == 1703123789
+
+    def test_livekit_room_summary_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            LiveKitRoomSummary(name="test-room")  # type: ignore[call-arg]
+
+    def test_livekit_rooms_response_missing_rooms(self) -> None:
+        """Test that missing rooms field raises validation error."""
+        with pytest.raises(ValidationError):
+            LiveKitRoomsResponse()  # type: ignore[call-arg]
+
+
+class TestLiveKitRoomDetailsTypes:
+    """Tests for LiveKit room details REST API types."""
+
+    def test_livekit_participant_info(self) -> None:
+        """Test creating a LiveKitParticipantInfo with sample data from api-updates.md."""
+        participant = LiveKitParticipantInfo(
+            sid="PA_abc123",
+            identity="user-alice-456",
+            name="Alice Smith",
+            state="ACTIVE",
+            kind="STANDARD",
+            joined_at=1703123456,
+            metadata='{"role": "host"}',
+            attributes={},
+            is_publisher=True,
+        )
+        assert participant.sid == "PA_abc123"
+        assert participant.identity == "user-alice-456"
+        assert participant.name == "Alice Smith"
+        assert participant.state == "ACTIVE"
+        assert participant.kind == "STANDARD"
+        assert participant.joined_at == 1703123456
+        assert participant.metadata == '{"role": "host"}'
+        assert participant.attributes == {}
+        assert participant.is_publisher is True
+
+    def test_livekit_participant_info_with_attributes(self) -> None:
+        """Test LiveKitParticipantInfo with non-empty attributes."""
+        participant = LiveKitParticipantInfo(
+            sid="PA_xyz789",
+            identity="agent-1",
+            name="AI Agent",
+            state="JOINED",
+            kind="AGENT",
+            joined_at=1703123500,
+            metadata="",
+            attributes={"role": "assistant", "version": "1.0"},
+            is_publisher=False,
+        )
+        assert participant.kind == "AGENT"
+        assert participant.attributes == {"role": "assistant", "version": "1.0"}
+        assert participant.is_publisher is False
+
+    def test_livekit_participant_info_all_states(self) -> None:
+        """Test that all participant states are accepted."""
+        for state in ["JOINING", "JOINED", "ACTIVE", "DISCONNECTED", "UNKNOWN"]:
+            participant = LiveKitParticipantInfo(
+                sid="PA_test",
+                identity="test-user",
+                name="Test",
+                state=state,  # type: ignore[arg-type]
+                kind="STANDARD",
+                joined_at=1703123456,
+                metadata="",
+                attributes={},
+                is_publisher=False,
+            )
+            assert participant.state == state
+
+    def test_livekit_participant_info_all_kinds(self) -> None:
+        """Test that all participant kinds are accepted."""
+        for kind in ["STANDARD", "AGENT", "SIP", "EGRESS", "INGRESS", "UNKNOWN"]:
+            participant = LiveKitParticipantInfo(
+                sid="PA_test",
+                identity="test-user",
+                name="Test",
+                state="ACTIVE",
+                kind=kind,  # type: ignore[arg-type]
+                joined_at=1703123456,
+                metadata="",
+                attributes={},
+                is_publisher=False,
+            )
+            assert participant.kind == kind
+
+    def test_livekit_room_details(self) -> None:
+        """Test creating a LiveKitRoomDetails with sample data from api-updates.md."""
+        room = LiveKitRoomDetails(
+            sid="RM_xyz789",
+            name="project1_conversation-room-123",
+            num_participants=2,
+            max_participants=10,
+            creation_time=1703123456,
+            metadata="",
+            active_recording=False,
+            participants=[
+                LiveKitParticipantInfo(
+                    sid="PA_abc123",
+                    identity="user-alice-456",
+                    name="Alice Smith",
+                    state="ACTIVE",
+                    kind="STANDARD",
+                    joined_at=1703123456,
+                    metadata='{"role": "host"}',
+                    attributes={},
+                    is_publisher=True,
+                )
+            ],
+        )
+        assert room.sid == "RM_xyz789"
+        assert room.name == "project1_conversation-room-123"
+        assert room.num_participants == 2
+        assert room.max_participants == 10
+        assert room.creation_time == 1703123456
+        assert room.metadata == ""
+        assert room.active_recording is False
+        assert len(room.participants) == 1
+        assert room.participants[0].identity == "user-alice-456"
+
+    def test_livekit_room_details_empty_participants(self) -> None:
+        """Test LiveKitRoomDetails with no participants."""
+        room = LiveKitRoomDetails(
+            sid="RM_empty",
+            name="project1_empty-room",
+            num_participants=0,
+            max_participants=0,
+            creation_time=1703123456,
+            metadata="test metadata",
+            active_recording=True,
+            participants=[],
+        )
+        assert room.num_participants == 0
+        assert room.max_participants == 0
+        assert room.metadata == "test metadata"
+        assert room.active_recording is True
+        assert room.participants == []
+
+    def test_livekit_room_details_from_dict(self) -> None:
+        """Test parsing LiveKitRoomDetails from dict (as returned by API)."""
+        data = {
+            "sid": "RM_xyz789",
+            "name": "project1_conversation-room-123",
+            "num_participants": 2,
+            "max_participants": 10,
+            "creation_time": 1703123456,
+            "metadata": "",
+            "active_recording": False,
+            "participants": [
+                {
+                    "sid": "PA_abc123",
+                    "identity": "user-alice-456",
+                    "name": "Alice Smith",
+                    "state": "ACTIVE",
+                    "kind": "STANDARD",
+                    "joined_at": 1703123456,
+                    "metadata": '{"role": "host"}',
+                    "attributes": {},
+                    "is_publisher": True,
+                }
+            ],
+        }
+        room = LiveKitRoomDetails(**data)
+        assert room.sid == "RM_xyz789"
+        assert room.name == "project1_conversation-room-123"
+        assert len(room.participants) == 1
+        assert room.participants[0].sid == "PA_abc123"
+        assert room.participants[0].state == "ACTIVE"
+        assert room.participants[0].kind == "STANDARD"
+
+    def test_livekit_participant_info_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            LiveKitParticipantInfo(sid="PA_test", identity="test")  # type: ignore[call-arg]
+
+    def test_livekit_room_details_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            LiveKitRoomDetails(sid="RM_test", name="test")  # type: ignore[call-arg]
+
+
+class TestRemoveLiveKitParticipantTypes:
+    """Tests for RemoveLiveKitParticipant request/response types."""
+
+    def test_remove_livekit_participant_request(self) -> None:
+        """Test creating a RemoveLiveKitParticipantRequest with sample data."""
+        request = RemoveLiveKitParticipantRequest(
+            room_name="conversation-room-123",
+            participant_identity="user-alice-456",
+        )
+        assert request.room_name == "conversation-room-123"
+        assert request.participant_identity == "user-alice-456"
+
+    def test_remove_livekit_participant_response(self) -> None:
+        """Test creating a RemoveLiveKitParticipantResponse with sample data from api-updates.md."""
+        response = RemoveLiveKitParticipantResponse(
+            status="removed",
+            room_name="project1_conversation-room-123",
+            participant_identity="user-alice-456",
+        )
+        assert response.status == "removed"
+        assert response.room_name == "project1_conversation-room-123"
+        assert response.participant_identity == "user-alice-456"
+
+    def test_remove_livekit_participant_request_from_dict(self) -> None:
+        """Test parsing RemoveLiveKitParticipantRequest from dict."""
+        data = {
+            "room_name": "conversation-room-123",
+            "participant_identity": "user-alice-456",
+        }
+        request = RemoveLiveKitParticipantRequest(**data)
+        assert request.room_name == "conversation-room-123"
+        assert request.participant_identity == "user-alice-456"
+
+    def test_remove_livekit_participant_response_from_dict(self) -> None:
+        """Test parsing RemoveLiveKitParticipantResponse from dict (as returned by API)."""
+        data = {
+            "status": "removed",
+            "room_name": "project1_conversation-room-123",
+            "participant_identity": "user-alice-456",
+        }
+        response = RemoveLiveKitParticipantResponse(**data)
+        assert response.status == "removed"
+        assert response.room_name == "project1_conversation-room-123"
+        assert response.participant_identity == "user-alice-456"
+
+    def test_remove_livekit_participant_request_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            RemoveLiveKitParticipantRequest(room_name="test-room")  # type: ignore[call-arg]
+
+    def test_remove_livekit_participant_response_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            RemoveLiveKitParticipantResponse(status="removed")  # type: ignore[call-arg]
+
+
+class TestMuteLiveKitParticipantTypes:
+    """Tests for MuteLiveKitParticipant request/response types."""
+
+    def test_mute_livekit_participant_request(self) -> None:
+        """Test creating a MuteLiveKitParticipantRequest with sample data from api-updates.md."""
+        request = MuteLiveKitParticipantRequest(
+            room_name="conversation-room-123",
+            participant_identity="user-alice-456",
+            track_sid="TR_abc123",
+            muted=True,
+        )
+        assert request.room_name == "conversation-room-123"
+        assert request.participant_identity == "user-alice-456"
+        assert request.track_sid == "TR_abc123"
+        assert request.muted is True
+
+    def test_mute_livekit_participant_request_unmute(self) -> None:
+        """Test MuteLiveKitParticipantRequest for unmuting (muted=False)."""
+        request = MuteLiveKitParticipantRequest(
+            room_name="test-room",
+            participant_identity="user-bob",
+            track_sid="TR_xyz789",
+            muted=False,
+        )
+        assert request.muted is False
+
+    def test_mute_livekit_participant_response(self) -> None:
+        """Test creating a MuteLiveKitParticipantResponse with sample data from api-updates.md."""
+        response = MuteLiveKitParticipantResponse(
+            room_name="project1_conversation-room-123",
+            participant_identity="user-alice-456",
+            track_sid="TR_abc123",
+            muted=True,
+        )
+        assert response.room_name == "project1_conversation-room-123"
+        assert response.participant_identity == "user-alice-456"
+        assert response.track_sid == "TR_abc123"
+        assert response.muted is True
+
+    def test_mute_livekit_participant_response_unmuted(self) -> None:
+        """Test MuteLiveKitParticipantResponse with muted=False."""
+        response = MuteLiveKitParticipantResponse(
+            room_name="project1_test-room",
+            participant_identity="user-bob",
+            track_sid="TR_xyz789",
+            muted=False,
+        )
+        assert response.muted is False
+
+    def test_mute_livekit_participant_request_from_dict(self) -> None:
+        """Test parsing MuteLiveKitParticipantRequest from dict."""
+        data = {
+            "room_name": "conversation-room-123",
+            "participant_identity": "user-alice-456",
+            "track_sid": "TR_abc123",
+            "muted": True,
+        }
+        request = MuteLiveKitParticipantRequest(**data)
+        assert request.room_name == "conversation-room-123"
+        assert request.participant_identity == "user-alice-456"
+        assert request.track_sid == "TR_abc123"
+        assert request.muted is True
+
+    def test_mute_livekit_participant_response_from_dict(self) -> None:
+        """Test parsing MuteLiveKitParticipantResponse from dict (as returned by API)."""
+        data = {
+            "room_name": "project1_conversation-room-123",
+            "participant_identity": "user-alice-456",
+            "track_sid": "TR_abc123",
+            "muted": True,
+        }
+        response = MuteLiveKitParticipantResponse(**data)
+        assert response.room_name == "project1_conversation-room-123"
+        assert response.participant_identity == "user-alice-456"
+        assert response.track_sid == "TR_abc123"
+        assert response.muted is True
+
+    def test_mute_livekit_participant_request_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            MuteLiveKitParticipantRequest(
+                room_name="test-room",
+                participant_identity="user-alice",
+            )  # type: ignore[call-arg]
+
+    def test_mute_livekit_participant_response_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            MuteLiveKitParticipantResponse(
+                room_name="test-room",
+                participant_identity="user-alice",
+            )  # type: ignore[call-arg]
+
+
+class TestSipTransferTypes:
+    """Tests for SIP transfer REST API types."""
+
+    def test_sip_transfer_request(self) -> None:
+        """Test creating a SipTransferRequest with sample data from api-updates.md."""
+        request = SipTransferRequest(
+            room_name="call-room-123",
+            participant_identity="sip_participant_456",
+            transfer_to="+15551234567",
+        )
+        assert request.room_name == "call-room-123"
+        assert request.participant_identity == "sip_participant_456"
+        assert request.transfer_to == "+15551234567"
+
+    def test_sip_transfer_request_national_format(self) -> None:
+        """Test SipTransferRequest with national phone number format."""
+        request = SipTransferRequest(
+            room_name="my-room",
+            participant_identity="sip-user-1",
+            transfer_to="07123456789",
+        )
+        assert request.transfer_to == "07123456789"
+
+    def test_sip_transfer_request_extension(self) -> None:
+        """Test SipTransferRequest with internal extension."""
+        request = SipTransferRequest(
+            room_name="my-room",
+            participant_identity="sip-user-1",
+            transfer_to="1234",
+        )
+        assert request.transfer_to == "1234"
+
+    def test_sip_transfer_response_initiated(self) -> None:
+        """Test creating a SipTransferResponse with status 'initiated'."""
+        response = SipTransferResponse(
+            status="initiated",
+            room_name="project1_call-room-123",
+            participant_identity="sip_participant_456",
+            transfer_to="tel:+15551234567",
+        )
+        assert response.status == "initiated"
+        assert response.room_name == "project1_call-room-123"
+        assert response.participant_identity == "sip_participant_456"
+        assert response.transfer_to == "tel:+15551234567"
+
+    def test_sip_transfer_response_completed(self) -> None:
+        """Test creating a SipTransferResponse with status 'completed'."""
+        response = SipTransferResponse(
+            status="completed",
+            room_name="project1_call-room-123",
+            participant_identity="sip_participant_456",
+            transfer_to="tel:+15551234567",
+        )
+        assert response.status == "completed"
+        assert response.room_name == "project1_call-room-123"
+        assert response.participant_identity == "sip_participant_456"
+        assert response.transfer_to == "tel:+15551234567"
+
+    def test_sip_transfer_request_from_dict(self) -> None:
+        """Test parsing SipTransferRequest from dict."""
+        data = {
+            "room_name": "call-room-123",
+            "participant_identity": "sip_participant_456",
+            "transfer_to": "+15551234567",
+        }
+        request = SipTransferRequest(**data)
+        assert request.room_name == "call-room-123"
+        assert request.participant_identity == "sip_participant_456"
+        assert request.transfer_to == "+15551234567"
+
+    def test_sip_transfer_response_from_dict(self) -> None:
+        """Test parsing SipTransferResponse from dict (as returned by API)."""
+        data = {
+            "status": "completed",
+            "room_name": "project1_call-room-123",
+            "participant_identity": "sip_participant_456",
+            "transfer_to": "tel:+15551234567",
+        }
+        response = SipTransferResponse(**data)
+        assert response.status == "completed"
+        assert response.room_name == "project1_call-room-123"
+        assert response.participant_identity == "sip_participant_456"
+        assert response.transfer_to == "tel:+15551234567"
+
+    def test_sip_transfer_request_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            SipTransferRequest(room_name="test-room")  # type: ignore[call-arg]
+
+    def test_sip_transfer_response_missing_field(self) -> None:
+        """Test that missing required fields raise validation error."""
+        with pytest.raises(ValidationError):
+            SipTransferResponse(status="initiated")  # type: ignore[call-arg]
+
+    def test_sip_transfer_response_invalid_status(self) -> None:
+        """Test that invalid status values raise validation error."""
+        with pytest.raises(ValidationError):
+            SipTransferResponse(
+                status="pending",  # type: ignore[arg-type]
+                room_name="project1_call-room-123",
+                participant_identity="sip_participant_456",
+                transfer_to="tel:+15551234567",
+            )

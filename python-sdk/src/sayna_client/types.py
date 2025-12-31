@@ -360,6 +360,261 @@ class DeleteSipHooksRequest(BaseModel):
     )
 
 
+class RemoveLiveKitParticipantRequest(BaseModel):
+    """Request body for DELETE /livekit/participant.
+
+    Removes a participant from a LiveKit room, forcibly disconnecting them.
+    The room name should be provided without the tenant prefix - the server
+    automatically applies it for tenant isolation.
+    """
+
+    room_name: str = Field(
+        ...,
+        description="The LiveKit room name where the participant is connected (without tenant prefix)",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="The identity of the participant to remove",
+    )
+
+
+class RemoveLiveKitParticipantResponse(BaseModel):
+    """Response from DELETE /livekit/participant.
+
+    Confirms the successful removal of a participant from a LiveKit room.
+    The room name in the response includes the tenant prefix.
+    """
+
+    status: str = Field(
+        ...,
+        description="Status of the removal operation",
+    )
+    room_name: str = Field(
+        ...,
+        description="The normalized room name (with tenant prefix)",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="The identity of the removed participant",
+    )
+
+
+class MuteLiveKitParticipantRequest(BaseModel):
+    """Request body for POST /livekit/participant/mute.
+
+    Mutes or unmutes a participant's published track in a LiveKit room.
+    The room name should be provided without the tenant prefix - the server
+    automatically applies it for tenant isolation.
+    """
+
+    room_name: str = Field(
+        ...,
+        description="The LiveKit room name where the participant is connected (without tenant prefix)",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="The identity of the participant whose track to mute",
+    )
+    track_sid: str = Field(
+        ...,
+        description="The session ID of the track to mute/unmute",
+    )
+    muted: bool = Field(
+        ...,
+        description="True to mute, false to unmute",
+    )
+
+
+class MuteLiveKitParticipantResponse(BaseModel):
+    """Response from POST /livekit/participant/mute.
+
+    Confirms the mute/unmute operation on a participant's track.
+    The room name in the response includes the tenant prefix.
+    """
+
+    room_name: str = Field(
+        ...,
+        description="The normalized room name (with tenant prefix)",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="The identity of the participant",
+    )
+    track_sid: str = Field(
+        ...,
+        description="The session ID of the track",
+    )
+    muted: bool = Field(
+        ...,
+        description="Current muted state after the operation",
+    )
+
+
+class SipTransferRequest(BaseModel):
+    """Request body for POST /sip/transfer.
+
+    Initiates a SIP REFER transfer for a participant in a LiveKit room.
+    The room name should be provided without the tenant prefix - the server
+    automatically applies it for tenant isolation.
+    """
+
+    room_name: str = Field(
+        ...,
+        description="The LiveKit room name where the SIP participant is connected (without tenant prefix)",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="The identity of the SIP participant to transfer. Can be obtained by listing participants via GET /livekit/rooms/{room_name}",
+    )
+    transfer_to: str = Field(
+        ...,
+        description="The phone number to transfer the call to. Supports: international format (+1234567890), national format (07123456789), or internal extensions (1234)",
+    )
+
+
+class SipTransferResponse(BaseModel):
+    """Response from POST /sip/transfer.
+
+    Confirms the SIP transfer operation. A status of "initiated" means the transfer
+    request was sent but may still be in progress. A status of "completed" means
+    the transfer has finished successfully.
+    """
+
+    status: Literal["initiated", "completed"] = Field(
+        ...,
+        description="Status of the transfer request",
+    )
+    room_name: str = Field(
+        ...,
+        description="The normalized room name where the transfer was initiated",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="The identity of the participant being transferred",
+    )
+    transfer_to: str = Field(
+        ...,
+        description="The normalized phone number with tel: prefix",
+    )
+
+
+class LiveKitRoomSummary(BaseModel):
+    """Summary information for a LiveKit room.
+
+    Returned when listing rooms via GET /livekit/rooms.
+    """
+
+    name: str = Field(
+        ...,
+        description="The full room name (includes tenant prefix)",
+    )
+    num_participants: int = Field(
+        ...,
+        description="Number of current participants in the room",
+    )
+    creation_time: int = Field(
+        ...,
+        description="Room creation time (Unix timestamp in seconds)",
+    )
+
+
+class LiveKitRoomsResponse(BaseModel):
+    """Response from GET /livekit/rooms endpoint.
+
+    Contains the list of all LiveKit rooms belonging to the authenticated tenant.
+    """
+
+    rooms: list[LiveKitRoomSummary] = Field(
+        ...,
+        description="List of rooms belonging to the authenticated client",
+    )
+
+
+class LiveKitParticipantInfo(BaseModel):
+    """Detailed information about a participant in a LiveKit room.
+
+    Returned as part of the GET /livekit/rooms/{room_name} response.
+    """
+
+    sid: str = Field(
+        ...,
+        description="Unique session ID for this participant (generated by LiveKit)",
+    )
+    identity: str = Field(
+        ...,
+        description="Unique identifier provided when connecting",
+    )
+    name: str = Field(
+        ...,
+        description="Display name of the participant",
+    )
+    state: Literal["JOINING", "JOINED", "ACTIVE", "DISCONNECTED", "UNKNOWN"] = Field(
+        ...,
+        description="Participant state",
+    )
+    kind: Literal["STANDARD", "AGENT", "SIP", "EGRESS", "INGRESS", "UNKNOWN"] = Field(
+        ...,
+        description="Participant kind/type",
+    )
+    joined_at: int = Field(
+        ...,
+        description="Timestamp when participant joined (Unix timestamp in seconds)",
+    )
+    metadata: str = Field(
+        ...,
+        description="User-specified metadata for the participant",
+    )
+    attributes: dict[str, str] = Field(
+        ...,
+        description="User-specified attributes for the participant",
+    )
+    is_publisher: bool = Field(
+        ...,
+        description="Whether the participant is currently publishing audio/video",
+    )
+
+
+class LiveKitRoomDetails(BaseModel):
+    """Detailed information about a LiveKit room including participants.
+
+    Returned from GET /livekit/rooms/{room_name} endpoint.
+    The room name is automatically prefixed with the tenant ID (auth.id) by the server.
+    """
+
+    sid: str = Field(
+        ...,
+        description="Unique session ID for the room (generated by LiveKit)",
+    )
+    name: str = Field(
+        ...,
+        description="The full room name (includes tenant prefix)",
+    )
+    num_participants: int = Field(
+        ...,
+        description="Number of current participants in the room",
+    )
+    max_participants: int = Field(
+        ...,
+        description="Maximum allowed participants (0 = no limit)",
+    )
+    creation_time: int = Field(
+        ...,
+        description="Room creation time (Unix timestamp in seconds)",
+    )
+    metadata: str = Field(
+        ...,
+        description="User-specified metadata for the room",
+    )
+    active_recording: bool = Field(
+        ...,
+        description="Whether a recording is currently active",
+    )
+    participants: list[LiveKitParticipantInfo] = Field(
+        ...,
+        description="List of participants currently in the room",
+    )
+
+
 # ============================================================================
 # Webhook Types
 # ============================================================================

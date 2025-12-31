@@ -16,8 +16,13 @@ import type {
   VoicesResponse,
   HealthResponse,
   LiveKitTokenResponse,
+  LiveKitRoomsResponse,
+  LiveKitRoomDetails,
   SipHook,
   SipHooksResponse,
+  RemoveLiveKitParticipantResponse,
+  MuteLiveKitParticipantResponse,
+  SipTransferResponse,
 } from "./types";
 import {
   SaynaNotConnectedError,
@@ -461,8 +466,8 @@ export class SaynaClient {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
 
-    // Add Content-Type for JSON requests if not already set
-    if (options.method === "POST" && options.body && !headers["Content-Type"]) {
+    // Add Content-Type for JSON requests with body if not already set
+    if (options.body && !headers["Content-Type"]) {
       headers["Content-Type"] = "application/json";
     }
 
@@ -906,6 +911,240 @@ export class SaynaClient {
         room_name: roomName,
         participant_name: participantName,
         participant_identity: participantIdentity,
+      }),
+    });
+  }
+
+  /**
+   * Lists all LiveKit rooms belonging to the authenticated tenant.
+   *
+   * Room names are automatically prefixed with the tenant ID (from the JWT token)
+   * for isolation. Only rooms matching your tenant prefix are returned.
+   *
+   * @returns Promise that resolves with the list of rooms
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., LiveKit not configured)
+   *
+   * @example
+   * ```typescript
+   * const response = await client.getLiveKitRooms();
+   * for (const room of response.rooms) {
+   *   console.log(`Room: ${room.name}, Participants: ${room.num_participants}`);
+   * }
+   * ```
+   */
+  async getLiveKitRooms(): Promise<LiveKitRoomsResponse> {
+    return this.fetchFromSayna<LiveKitRoomsResponse>("livekit/rooms");
+  }
+
+  /**
+   * Retrieves detailed information about a specific LiveKit room including participants.
+   *
+   * The room name is automatically prefixed with the tenant ID (from the JWT token)
+   * for isolation. You should provide the room name without the tenant prefix.
+   *
+   * @param roomName - Name of the room to retrieve (without tenant prefix)
+   * @returns Promise that resolves with detailed room information including participants
+   * @throws {SaynaValidationError} If roomName is empty
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., room not found, LiveKit not configured)
+   *
+   * @example
+   * ```typescript
+   * const room = await client.getLiveKitRoom("my-room");
+   * console.log(`Room: ${room.name}, SID: ${room.sid}`);
+   * console.log(`Participants: ${room.num_participants}/${room.max_participants}`);
+   * for (const participant of room.participants) {
+   *   console.log(`  - ${participant.name} (${participant.identity}): ${participant.state}`);
+   * }
+   * ```
+   */
+  async getLiveKitRoom(roomName: string): Promise<LiveKitRoomDetails> {
+    if (!roomName || roomName.trim().length === 0) {
+      throw new SaynaValidationError("room_name cannot be empty");
+    }
+
+    const encoded = encodeURIComponent(roomName.trim());
+    return this.fetchFromSayna<LiveKitRoomDetails>(`livekit/rooms/${encoded}`);
+  }
+
+  /**
+   * Removes a participant from a LiveKit room, forcibly disconnecting them.
+   *
+   * The room name is automatically prefixed with the tenant ID (from the JWT token)
+   * for isolation. You should provide the room name without the tenant prefix.
+   *
+   * **Important:** This does not invalidate the participant's token. To prevent
+   * rejoining, use short-lived tokens and avoid issuing new tokens to removed participants.
+   *
+   * @param roomName - Name of the room where the participant is connected (without tenant prefix)
+   * @param participantIdentity - The identity of the participant to remove
+   * @returns Promise that resolves with the removal confirmation
+   * @throws {SaynaValidationError} If roomName or participantIdentity is empty
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., participant not found, LiveKit not configured)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.removeLiveKitParticipant("my-room", "user-alice-456");
+   * console.log(`Status: ${result.status}`);
+   * console.log(`Removed from room: ${result.room_name}`);
+   * console.log(`Participant: ${result.participant_identity}`);
+   * ```
+   */
+  async removeLiveKitParticipant(
+    roomName: string,
+    participantIdentity: string
+  ): Promise<RemoveLiveKitParticipantResponse> {
+    if (!roomName || roomName.trim().length === 0) {
+      throw new SaynaValidationError("room_name cannot be empty");
+    }
+
+    if (!participantIdentity || participantIdentity.trim().length === 0) {
+      throw new SaynaValidationError("participant_identity cannot be empty");
+    }
+
+    return this.fetchFromSayna<RemoveLiveKitParticipantResponse>(
+      "livekit/participant",
+      {
+        method: "DELETE",
+        body: JSON.stringify({
+          room_name: roomName.trim(),
+          participant_identity: participantIdentity.trim(),
+        }),
+      }
+    );
+  }
+
+  /**
+   * Mutes or unmutes a participant's published track in a LiveKit room.
+   *
+   * The room name is automatically prefixed with the tenant ID (from the JWT token)
+   * for isolation. You should provide the room name without the tenant prefix.
+   *
+   * @param roomName - Name of the room where the participant is connected (without tenant prefix)
+   * @param participantIdentity - The identity of the participant whose track to mute
+   * @param trackSid - The session ID of the track to mute/unmute
+   * @param muted - True to mute, false to unmute
+   * @returns Promise that resolves with the mute operation result
+   * @throws {SaynaValidationError} If roomName, participantIdentity, or trackSid is empty, or if muted is not a boolean
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., track or participant not found, LiveKit not configured)
+   *
+   * @example
+   * ```typescript
+   * // Mute a participant's track
+   * const result = await client.muteLiveKitParticipantTrack(
+   *   "my-room",
+   *   "user-alice-456",
+   *   "TR_abc123",
+   *   true
+   * );
+   * console.log(`Track ${result.track_sid} muted: ${result.muted}`);
+   *
+   * // Unmute the track
+   * const unmuteResult = await client.muteLiveKitParticipantTrack(
+   *   "my-room",
+   *   "user-alice-456",
+   *   "TR_abc123",
+   *   false
+   * );
+   * ```
+   */
+  async muteLiveKitParticipantTrack(
+    roomName: string,
+    participantIdentity: string,
+    trackSid: string,
+    muted: boolean
+  ): Promise<MuteLiveKitParticipantResponse> {
+    if (!roomName || roomName.trim().length === 0) {
+      throw new SaynaValidationError("room_name cannot be empty");
+    }
+
+    if (!participantIdentity || participantIdentity.trim().length === 0) {
+      throw new SaynaValidationError("participant_identity cannot be empty");
+    }
+
+    if (!trackSid || trackSid.trim().length === 0) {
+      throw new SaynaValidationError("track_sid cannot be empty");
+    }
+
+    if (typeof muted !== "boolean") {
+      throw new SaynaValidationError("muted must be a boolean");
+    }
+
+    return this.fetchFromSayna<MuteLiveKitParticipantResponse>(
+      "livekit/participant/mute",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          room_name: roomName.trim(),
+          participant_identity: participantIdentity.trim(),
+          track_sid: trackSid.trim(),
+          muted,
+        }),
+      }
+    );
+  }
+
+  /**
+   * Initiates a SIP call transfer via the REST API endpoint.
+   *
+   * This is distinct from the WebSocket `sipTransfer()` method. Use this REST endpoint
+   * when you need to transfer a SIP call from outside the active WebSocket session,
+   * or when you want to specify a particular room and participant explicitly.
+   *
+   * The room name is automatically prefixed with the tenant ID (from the JWT token)
+   * for isolation. You should provide the room name without the tenant prefix.
+   *
+   * **Important Notes:**
+   * - Only SIP participants can be transferred
+   * - A successful response indicates the transfer has been **initiated**, not necessarily completed
+   * - The actual transfer may take several seconds
+   *
+   * @param roomName - Name of the room where the SIP participant is connected (without tenant prefix)
+   * @param participantIdentity - The identity of the SIP participant to transfer
+   * @param transferTo - The phone number to transfer to (international, national, or extension format)
+   * @returns Promise that resolves with the transfer status
+   * @throws {SaynaValidationError} If roomName, participantIdentity, or transferTo is empty
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error (e.g., invalid phone, participant not found)
+   *
+   * @example
+   * ```typescript
+   * // Transfer a SIP participant to another phone number
+   * const result = await client.sipTransferRest(
+   *   "call-room-123",
+   *   "sip_participant_456",
+   *   "+15551234567"
+   * );
+   * console.log(`Transfer status: ${result.status}`);
+   * console.log(`Transferred to: ${result.transfer_to}`);
+   * ```
+   */
+  async sipTransferRest(
+    roomName: string,
+    participantIdentity: string,
+    transferTo: string
+  ): Promise<SipTransferResponse> {
+    if (!roomName || roomName.trim().length === 0) {
+      throw new SaynaValidationError("room_name cannot be empty");
+    }
+
+    if (!participantIdentity || participantIdentity.trim().length === 0) {
+      throw new SaynaValidationError("participant_identity cannot be empty");
+    }
+
+    if (!transferTo || transferTo.trim().length === 0) {
+      throw new SaynaValidationError("transfer_to cannot be empty");
+    }
+
+    return this.fetchFromSayna<SipTransferResponse>("sip/transfer", {
+      method: "POST",
+      body: JSON.stringify({
+        room_name: roomName.trim(),
+        participant_identity: participantIdentity.trim(),
+        transfer_to: transferTo.trim(),
       }),
     });
   }

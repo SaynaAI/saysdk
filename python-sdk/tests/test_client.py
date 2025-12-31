@@ -208,6 +208,321 @@ class TestSipTransfer:
         assert received[0].message == "No SIP participant found"
 
 
+class TestGetLiveKitRoom:
+    """Tests for get_livekit_room method validation."""
+
+    @pytest.mark.asyncio
+    async def test_get_livekit_room_validates_empty_room_name(self) -> None:
+        """Empty room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.get_livekit_room("")
+
+    @pytest.mark.asyncio
+    async def test_get_livekit_room_validates_whitespace_room_name(self) -> None:
+        """Whitespace-only room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.get_livekit_room("   ")
+
+
+class TestRemoveLiveKitParticipant:
+    """Tests for remove_livekit_participant method validation."""
+
+    @pytest.mark.asyncio
+    async def test_remove_livekit_participant_validates_empty_room_name(self) -> None:
+        """Empty room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.remove_livekit_participant("", "user-alice-456")
+
+    @pytest.mark.asyncio
+    async def test_remove_livekit_participant_validates_whitespace_room_name(self) -> None:
+        """Whitespace-only room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.remove_livekit_participant("   ", "user-alice-456")
+
+    @pytest.mark.asyncio
+    async def test_remove_livekit_participant_validates_empty_participant_identity(self) -> None:
+        """Empty participant_identity should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(
+            SaynaValidationError, match="participant_identity must be a non-empty string"
+        ):
+            await client.remove_livekit_participant("conversation-room-123", "")
+
+    @pytest.mark.asyncio
+    async def test_remove_livekit_participant_validates_whitespace_participant_identity(
+        self,
+    ) -> None:
+        """Whitespace-only participant_identity should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(
+            SaynaValidationError, match="participant_identity must be a non-empty string"
+        ):
+            await client.remove_livekit_participant("conversation-room-123", "   ")
+
+
+class TestMuteLiveKitParticipantTrack:
+    """Tests for mute_livekit_participant_track method validation."""
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_empty_room_name(self) -> None:
+        """Empty room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.mute_livekit_participant_track(
+                "", "user-alice-456", "TR_abc123", muted=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_whitespace_room_name(self) -> None:
+        """Whitespace-only room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.mute_livekit_participant_track(
+                "   ", "user-alice-456", "TR_abc123", muted=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_empty_participant_identity(
+        self,
+    ) -> None:
+        """Empty participant_identity should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(
+            SaynaValidationError, match="participant_identity must be a non-empty string"
+        ):
+            await client.mute_livekit_participant_track(
+                "conversation-room-123", "", "TR_abc123", muted=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_whitespace_participant_identity(
+        self,
+    ) -> None:
+        """Whitespace-only participant_identity should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(
+            SaynaValidationError, match="participant_identity must be a non-empty string"
+        ):
+            await client.mute_livekit_participant_track(
+                "conversation-room-123", "   ", "TR_abc123", muted=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_empty_track_sid(self) -> None:
+        """Empty track_sid should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="track_sid must be a non-empty string"):
+            await client.mute_livekit_participant_track(
+                "conversation-room-123", "user-alice-456", "", muted=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_whitespace_track_sid(self) -> None:
+        """Whitespace-only track_sid should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="track_sid must be a non-empty string"):
+            await client.mute_livekit_participant_track(
+                "conversation-room-123", "user-alice-456", "   ", muted=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_muted_not_boolean_string(
+        self,
+    ) -> None:
+        """Non-boolean muted value (string) should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="muted must be a boolean"):
+            await client.mute_livekit_participant_track(
+                "conversation-room-123",
+                "user-alice-456",
+                "TR_abc123",
+                muted="true",  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_muted_not_boolean_int(self) -> None:
+        """Non-boolean muted value (int) should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="muted must be a boolean"):
+            await client.mute_livekit_participant_track(
+                "conversation-room-123",
+                "user-alice-456",
+                "TR_abc123",
+                muted=1,  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.asyncio
+    async def test_mute_livekit_participant_track_validates_muted_not_boolean_none(self) -> None:
+        """Non-boolean muted value (None) should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="muted must be a boolean"):
+            await client.mute_livekit_participant_track(
+                "conversation-room-123",
+                "user-alice-456",
+                "TR_abc123",
+                muted=None,  # type: ignore[arg-type]
+            )
+
+
+class TestSipTransferRest:
+    """Tests for sip_transfer_rest method validation."""
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_rest_validates_empty_room_name(self) -> None:
+        """Empty room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.sip_transfer_rest("", "sip_participant_456", "+15551234567")
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_rest_validates_whitespace_room_name(self) -> None:
+        """Whitespace-only room_name should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="room_name must be a non-empty string"):
+            await client.sip_transfer_rest("   ", "sip_participant_456", "+15551234567")
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_rest_validates_empty_participant_identity(self) -> None:
+        """Empty participant_identity should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(
+            SaynaValidationError, match="participant_identity must be a non-empty string"
+        ):
+            await client.sip_transfer_rest("call-room-123", "", "+15551234567")
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_rest_validates_whitespace_participant_identity(self) -> None:
+        """Whitespace-only participant_identity should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(
+            SaynaValidationError, match="participant_identity must be a non-empty string"
+        ):
+            await client.sip_transfer_rest("call-room-123", "   ", "+15551234567")
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_rest_validates_empty_transfer_to(self) -> None:
+        """Empty transfer_to should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="transfer_to must be a non-empty string"):
+            await client.sip_transfer_rest("call-room-123", "sip_participant_456", "")
+
+    @pytest.mark.asyncio
+    async def test_sip_transfer_rest_validates_whitespace_transfer_to(self) -> None:
+        """Whitespace-only transfer_to should raise SaynaValidationError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with pytest.raises(SaynaValidationError, match="transfer_to must be a non-empty string"):
+            await client.sip_transfer_rest("call-room-123", "sip_participant_456", "   ")
+
+
 # TODO: Add integration tests with mock WebSocket server:
 # - Test WebSocket connection with valid config
 # - Test WebSocket message sending (speak, clear, tts_flush, send_message, on_audio_input)

@@ -7,6 +7,7 @@ import logging
 import os
 import warnings
 from typing import Any, Callable, Optional
+from urllib.parse import quote
 
 import aiohttp
 from pydantic import ValidationError
@@ -25,17 +26,25 @@ from sayna_client.types import (
     ErrorMessage,
     HealthResponse,
     LiveKitConfig,
+    LiveKitRoomDetails,
+    LiveKitRoomsResponse,
     LiveKitTokenRequest,
     LiveKitTokenResponse,
     MessageMessage,
+    MuteLiveKitParticipantRequest,
+    MuteLiveKitParticipantResponse,
     ParticipantDisconnectedMessage,
     ReadyMessage,
+    RemoveLiveKitParticipantRequest,
+    RemoveLiveKitParticipantResponse,
     SendMessageMessage,
     SetSipHooksRequest,
     SipHook,
     SipHooksResponse,
     SipTransferErrorMessage,
     SipTransferMessage,
+    SipTransferRequest,
+    SipTransferResponse,
     SpeakMessage,
     SpeakRequest,
     STTConfig,
@@ -327,6 +336,173 @@ class SaynaClient:
         data = await self._http_client.post("/livekit/token", json_data=request.model_dump())
         return LiveKitTokenResponse(**data)
 
+    async def get_livekit_rooms(self) -> LiveKitRoomsResponse:
+        """List all LiveKit rooms for the authenticated tenant.
+
+        Returns a list of rooms belonging to the authenticated client. Room names
+        include the tenant prefix (e.g., "project1_my-room"). The server automatically
+        filters rooms based on the auth.id from the JWT token.
+
+        Returns:
+            LiveKitRoomsResponse containing the list of rooms with summary info
+
+        Raises:
+            SaynaServerError: If the server returns an error (e.g., LiveKit not configured)
+
+        Example:
+            >>> rooms = await client.get_livekit_rooms()
+            >>> for room in rooms.rooms:
+            ...     print(f"{room.name}: {room.num_participants} participants")
+        """
+        data = await self._http_client.get("/livekit/rooms")
+        return LiveKitRoomsResponse(**data)
+
+    async def get_livekit_room(self, room_name: str) -> LiveKitRoomDetails:
+        """Get detailed information about a specific LiveKit room including participants.
+
+        The room name provided should be without the tenant prefix. The server
+        automatically applies the tenant prefix (auth.id) for isolation.
+
+        Args:
+            room_name: Name of the room to retrieve (without tenant prefix)
+
+        Returns:
+            LiveKitRoomDetails containing room info and participants list.
+            Each participant is a LiveKitParticipantInfo with details like
+            identity, state, kind, and whether they are publishing.
+
+        Raises:
+            SaynaValidationError: If room_name is empty or whitespace-only
+            SaynaServerError: If the server returns an error (e.g., room not found,
+                LiveKit not configured)
+
+        Example:
+            >>> room = await client.get_livekit_room("conversation-room-123")
+            >>> print(f"Room: {room.name}, Participants: {room.num_participants}")
+            >>> for p in room.participants:
+            ...     print(f"  - {p.identity} ({p.state})")
+        """
+        if not room_name or not room_name.strip():
+            msg = "room_name must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        encoded_room_name = quote(room_name.strip(), safe="")
+        data = await self._http_client.get(f"/livekit/rooms/{encoded_room_name}")
+        return LiveKitRoomDetails(**data)
+
+    async def remove_livekit_participant(
+        self,
+        room_name: str,
+        participant_identity: str,
+    ) -> RemoveLiveKitParticipantResponse:
+        """Remove a participant from a LiveKit room, forcibly disconnecting them.
+
+        The room name provided should be without the tenant prefix. The server
+        automatically applies the tenant prefix (auth.id) for isolation.
+
+        Note: This does not invalidate the participant's token. To prevent
+        rejoining, use short-lived tokens and avoid issuing new tokens to
+        removed participants.
+
+        Args:
+            room_name: Name of the room (without tenant prefix)
+            participant_identity: Identity of the participant to remove
+
+        Returns:
+            RemoveLiveKitParticipantResponse containing status, normalized room name
+            (with tenant prefix), and participant identity
+
+        Raises:
+            SaynaValidationError: If room_name or participant_identity is empty/whitespace
+            SaynaServerError: If the server returns an error (e.g., participant not found,
+                LiveKit not configured)
+
+        Example:
+            >>> response = await client.remove_livekit_participant(
+            ...     "conversation-room-123", "user-alice-456"
+            ... )
+            >>> print(f"Status: {response.status}")
+            >>> print(f"Removed from: {response.room_name}")
+        """
+        if not room_name or not room_name.strip():
+            msg = "room_name must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not participant_identity or not participant_identity.strip():
+            msg = "participant_identity must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        request = RemoveLiveKitParticipantRequest(
+            room_name=room_name,
+            participant_identity=participant_identity,
+        )
+        data = await self._http_client.delete(
+            "/livekit/participant", json_data=request.model_dump()
+        )
+        return RemoveLiveKitParticipantResponse(**data)
+
+    async def mute_livekit_participant_track(
+        self,
+        room_name: str,
+        participant_identity: str,
+        track_sid: str,
+        muted: bool,
+    ) -> MuteLiveKitParticipantResponse:
+        """Mute or unmute a participant's published track in a LiveKit room.
+
+        The room name provided should be without the tenant prefix. The server
+        automatically applies the tenant prefix (auth.id) for isolation and
+        returns the normalized room name in the response.
+
+        Args:
+            room_name: Name of the room (without tenant prefix)
+            participant_identity: Identity of the participant whose track to mute
+            track_sid: Session ID of the track to mute/unmute
+            muted: True to mute, False to unmute
+
+        Returns:
+            MuteLiveKitParticipantResponse containing the normalized room name
+            (with tenant prefix), participant identity, track SID, and muted state
+
+        Raises:
+            SaynaValidationError: If room_name, participant_identity, or track_sid
+                is empty/whitespace, or if muted is not a boolean
+            SaynaServerError: If the server returns an error (e.g., track not found,
+                LiveKit not configured)
+
+        Example:
+            >>> response = await client.mute_livekit_participant_track(
+            ...     "conversation-room-123", "user-alice-456", "TR_abc123", muted=True
+            ... )
+            >>> print(f"Track {response.track_sid} muted: {response.muted}")
+        """
+        if not room_name or not room_name.strip():
+            msg = "room_name must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not participant_identity or not participant_identity.strip():
+            msg = "participant_identity must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not track_sid or not track_sid.strip():
+            msg = "track_sid must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not isinstance(muted, bool):
+            msg = "muted must be a boolean"
+            raise SaynaValidationError(msg)
+
+        request = MuteLiveKitParticipantRequest(
+            room_name=room_name,
+            participant_identity=participant_identity,
+            track_sid=track_sid,
+            muted=muted,
+        )
+        data = await self._http_client.post(
+            "/livekit/participant/mute", json_data=request.model_dump()
+        )
+        return MuteLiveKitParticipantResponse(**data)
+
     async def get_sip_hooks(self) -> SipHooksResponse:
         """Retrieve all configured SIP webhook hooks from the runtime cache.
 
@@ -398,6 +574,69 @@ class SaynaClient:
         request = DeleteSipHooksRequest(hosts=hosts)
         data = await self._http_client.delete("/sip/hooks", json_data=request.model_dump())
         return SipHooksResponse(**data)
+
+    async def sip_transfer_rest(
+        self,
+        room_name: str,
+        participant_identity: str,
+        transfer_to: str,
+    ) -> SipTransferResponse:
+        """Initiate a SIP call transfer via REST API.
+
+        This is a REST endpoint for initiating SIP REFER transfers. It is distinct
+        from the WebSocket `sip_transfer` method which operates on the active
+        LiveKit session. Use this method when you need to transfer a SIP participant
+        in a room without an active WebSocket connection.
+
+        The room name provided should be without the tenant prefix. The server
+        automatically applies the tenant prefix (auth.id) for isolation.
+
+        Args:
+            room_name: Name of the LiveKit room where the SIP participant is connected
+                (without tenant prefix)
+            participant_identity: Identity of the SIP participant to transfer.
+                Can be obtained by listing participants via get_livekit_room()
+            transfer_to: Phone number to transfer the call to. Supports international
+                format (+1234567890), national format (07123456789), or internal
+                extensions (1234)
+
+        Returns:
+            SipTransferResponse containing the status ("initiated" or "completed"),
+            normalized room name (with tenant prefix), participant identity, and
+            normalized transfer_to (with tel: prefix)
+
+        Raises:
+            SaynaValidationError: If room_name, participant_identity, or transfer_to
+                is empty/whitespace
+            SaynaServerError: If the server returns an error (e.g., participant not
+                found, not a SIP participant, LiveKit not configured)
+
+        Example:
+            >>> response = await client.sip_transfer_rest(
+            ...     "call-room-123", "sip_participant_456", "+15551234567"
+            ... )
+            >>> print(f"Transfer status: {response.status}")
+            >>> print(f"Transferred to: {response.transfer_to}")
+        """
+        if not room_name or not room_name.strip():
+            msg = "room_name must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not participant_identity or not participant_identity.strip():
+            msg = "participant_identity must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not transfer_to or not transfer_to.strip():
+            msg = "transfer_to must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        request = SipTransferRequest(
+            room_name=room_name,
+            participant_identity=participant_identity,
+            transfer_to=transfer_to,
+        )
+        data = await self._http_client.post("/sip/transfer", json_data=request.model_dump())
+        return SipTransferResponse(**data)
 
     async def get_recording(self, stream_id: str) -> tuple[bytes, dict[str, str]]:
         """Download the recorded audio file for a completed session.

@@ -55,7 +55,7 @@ from sayna_client.types import (
 from sayna_client.webhook_receiver import WebhookReceiver
 
 
-__version__ = "0.0.10"
+__version__ = "0.0.11"
 
 __all__ = [
     "ClearMessage",

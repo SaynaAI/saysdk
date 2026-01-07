@@ -25,7 +25,7 @@ export interface Pronunciation {
   /** The word to be pronounced differently */
   word: string;
   /** Phonetic pronunciation or alternative spelling */
- pronunciation: string;
+  pronunciation: string;
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@sayna-ai/js-sdk",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Browser SDK for connecting Sayna clients to real-time voice rooms.",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -30,13 +30,13 @@
   },
   "type": "module",
   "dependencies": {
-    "livekit-client": "^1.15.13"
+    "livekit-client": "^2.16.1"
   },
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "publishConfig": {
     "access": "public"

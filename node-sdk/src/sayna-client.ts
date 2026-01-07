@@ -1274,9 +1274,7 @@ export class SaynaClient {
       }
       // auth_id is required but may be an empty string for unauthenticated mode
       if (typeof hook.auth_id !== "string") {
-        throw new SaynaValidationError(
-          `hooks[${i}].auth_id must be a string`
-        );
+        throw new SaynaValidationError(`hooks[${i}].auth_id must be a string`);
       }
     }
 

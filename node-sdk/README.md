@@ -152,10 +152,10 @@ Sets or updates SIP webhook hooks in the runtime cache. Hooks with matching host
 
 Each `SipHook` object contains:
 
-| field     | type     | description                                                                                                            |
-| --------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `host`    | `string` | SIP domain pattern (case-insensitive).                                                                                 |
-| `url`     | `string` | HTTPS URL to forward webhook events to.                                                                                |
+| field     | type     | description                                                                                                           |
+| --------- | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| `host`    | `string` | SIP domain pattern (case-insensitive).                                                                                |
+| `url`     | `string` | HTTPS URL to forward webhook events to.                                                                               |
 | `auth_id` | `string` | Tenant identifier for this hook. Required but may be empty for unauthenticated mode. Treat as opaque; pass unchanged. |
 
 **Returns**: `Promise<SipHooksResponse>` - Object containing the merged list of all configured hooks.
@@ -164,8 +164,16 @@ Each `SipHook` object contains:
 
 ```typescript
 const response = await client.setSipHooks([
-  { host: "example.com", url: "https://webhook.example.com/events", auth_id: "tenant-123" },
-  { host: "another.com", url: "https://webhook.another.com/events", auth_id: "" },  // Empty for unauthenticated mode
+  {
+    host: "example.com",
+    url: "https://webhook.example.com/events",
+    auth_id: "tenant-123",
+  },
+  {
+    host: "another.com",
+    url: "https://webhook.another.com/events",
+    auth_id: "",
+  }, // Empty for unauthenticated mode
 ]);
 console.log("Total hooks configured:", response.hooks.length);
 ```

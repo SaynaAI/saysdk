@@ -1,6 +1,10 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { SaynaClient } from "../src/sayna-client";
-import { SaynaValidationError, SaynaNotConnectedError, SaynaServerError } from "../src/errors";
+import {
+  SaynaValidationError,
+  SaynaNotConnectedError,
+  SaynaServerError,
+} from "../src/errors";
 import type { STTConfig, TTSConfig } from "../src/types";
 
 function getTestSTTConfig(): STTConfig {
@@ -383,13 +387,13 @@ describe("SaynaClient REST API Methods", () => {
       getTestTTSConfig()
     );
 
-    await expect(client.getLiveKitToken("", "name", "identity")).rejects.toThrow(
-      "room_name cannot be empty"
-    );
+    await expect(
+      client.getLiveKitToken("", "name", "identity")
+    ).rejects.toThrow("room_name cannot be empty");
 
-    await expect(client.getLiveKitToken("room", "", "identity")).rejects.toThrow(
-      "participant_name cannot be empty"
-    );
+    await expect(
+      client.getLiveKitToken("room", "", "identity")
+    ).rejects.toThrow("participant_name cannot be empty");
 
     await expect(client.getLiveKitToken("room", "name", "")).rejects.toThrow(
       "participant_identity cannot be empty"
@@ -403,7 +407,9 @@ describe("SaynaClient REST API Methods", () => {
       getTestTTSConfig()
     );
 
-    await expect(client.getLiveKitRoom("")).rejects.toThrow(SaynaValidationError);
+    await expect(client.getLiveKitRoom("")).rejects.toThrow(
+      SaynaValidationError
+    );
     await expect(client.getLiveKitRoom("")).rejects.toThrow(
       "room_name cannot be empty"
     );
@@ -468,17 +474,37 @@ describe("SaynaClient REST API Methods", () => {
     );
 
     await expect(
-      client.muteLiveKitParticipantTrack("", "user-alice-456", "TR_abc123", true)
+      client.muteLiveKitParticipantTrack(
+        "",
+        "user-alice-456",
+        "TR_abc123",
+        true
+      )
     ).rejects.toThrow(SaynaValidationError);
     await expect(
-      client.muteLiveKitParticipantTrack("", "user-alice-456", "TR_abc123", true)
+      client.muteLiveKitParticipantTrack(
+        "",
+        "user-alice-456",
+        "TR_abc123",
+        true
+      )
     ).rejects.toThrow("room_name cannot be empty");
 
     await expect(
-      client.muteLiveKitParticipantTrack("   ", "user-alice-456", "TR_abc123", true)
+      client.muteLiveKitParticipantTrack(
+        "   ",
+        "user-alice-456",
+        "TR_abc123",
+        true
+      )
     ).rejects.toThrow(SaynaValidationError);
     await expect(
-      client.muteLiveKitParticipantTrack("   ", "user-alice-456", "TR_abc123", true)
+      client.muteLiveKitParticipantTrack(
+        "   ",
+        "user-alice-456",
+        "TR_abc123",
+        true
+      )
     ).rejects.toThrow("room_name cannot be empty");
   });
 
@@ -519,10 +545,20 @@ describe("SaynaClient REST API Methods", () => {
     ).rejects.toThrow("track_sid cannot be empty");
 
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "   ", true)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "   ",
+        true
+      )
     ).rejects.toThrow(SaynaValidationError);
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "   ", true)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "   ",
+        true
+      )
     ).rejects.toThrow("track_sid cannot be empty");
   });
 
@@ -534,31 +570,71 @@ describe("SaynaClient REST API Methods", () => {
     );
 
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", "true" as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        "true" as any
+      )
     ).rejects.toThrow(SaynaValidationError);
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", "true" as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        "true" as any
+      )
     ).rejects.toThrow("muted must be a boolean");
 
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", 1 as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        1 as any
+      )
     ).rejects.toThrow(SaynaValidationError);
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", 1 as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        1 as any
+      )
     ).rejects.toThrow("muted must be a boolean");
 
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", null as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        null as any
+      )
     ).rejects.toThrow(SaynaValidationError);
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", null as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        null as any
+      )
     ).rejects.toThrow("muted must be a boolean");
 
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", undefined as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        undefined as any
+      )
     ).rejects.toThrow(SaynaValidationError);
     await expect(
-      client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", undefined as any)
+      client.muteLiveKitParticipantTrack(
+        "my-room",
+        "user-alice-456",
+        "TR_abc123",
+        undefined as any
+      )
     ).rejects.toThrow("muted must be a boolean");
   });
 
@@ -760,15 +836,21 @@ describe("SaynaClient SIP Hooks Methods", () => {
     );
 
     expect(async () =>
-      client.setSipHooks([{ host: "", url: "https://example.com", auth_id: "tenant-1" }])
+      client.setSipHooks([
+        { host: "", url: "https://example.com", auth_id: "tenant-1" },
+      ])
     ).toThrow("hooks[0].host must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: "   ", url: "https://example.com", auth_id: "tenant-1" }])
+      client.setSipHooks([
+        { host: "   ", url: "https://example.com", auth_id: "tenant-1" },
+      ])
     ).toThrow("hooks[0].host must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: 123 as any, url: "https://example.com", auth_id: "tenant-1" }])
+      client.setSipHooks([
+        { host: 123 as any, url: "https://example.com", auth_id: "tenant-1" },
+      ])
     ).toThrow("hooks[0].host must be a non-empty string");
   });
 
@@ -780,15 +862,21 @@ describe("SaynaClient SIP Hooks Methods", () => {
     );
 
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: "", auth_id: "tenant-1" }])
+      client.setSipHooks([
+        { host: "example.com", url: "", auth_id: "tenant-1" },
+      ])
     ).toThrow("hooks[0].url must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: "   ", auth_id: "tenant-1" }])
+      client.setSipHooks([
+        { host: "example.com", url: "   ", auth_id: "tenant-1" },
+      ])
     ).toThrow("hooks[0].url must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: 123 as any, auth_id: "tenant-1" }])
+      client.setSipHooks([
+        { host: "example.com", url: 123 as any, auth_id: "tenant-1" },
+      ])
     ).toThrow("hooks[0].url must be a non-empty string");
   });
 
@@ -801,17 +889,31 @@ describe("SaynaClient SIP Hooks Methods", () => {
 
     // Missing auth_id (undefined)
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: "https://example.com" } as any])
+      client.setSipHooks([
+        { host: "example.com", url: "https://example.com" } as any,
+      ])
     ).toThrow("hooks[0].auth_id must be a string");
 
     // null auth_id
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: "https://example.com", auth_id: null as any }])
+      client.setSipHooks([
+        {
+          host: "example.com",
+          url: "https://example.com",
+          auth_id: null as any,
+        },
+      ])
     ).toThrow("hooks[0].auth_id must be a string");
 
     // Number auth_id
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: "https://example.com", auth_id: 123 as any }])
+      client.setSipHooks([
+        {
+          host: "example.com",
+          url: "https://example.com",
+          auth_id: 123 as any,
+        },
+      ])
     ).toThrow("hooks[0].auth_id must be a string");
   });
 
@@ -826,7 +928,11 @@ describe("SaynaClient SIP Hooks Methods", () => {
     // We're just testing that empty string is allowed
     try {
       await client.setSipHooks([
-        { host: "example.com", url: "https://example.com/webhook", auth_id: "" }
+        {
+          host: "example.com",
+          url: "https://example.com/webhook",
+          auth_id: "",
+        },
       ]);
     } catch (error) {
       // Should fail on network, not validation
@@ -907,7 +1013,8 @@ describe("SaynaClient REST Error Mapping", () => {
     statusText: string;
     json: () => Promise<unknown>;
   }): typeof globalThis.fetch {
-    return (async () => Promise.resolve(options)) as unknown as typeof globalThis.fetch;
+    return (async () =>
+      Promise.resolve(options)) as unknown as typeof globalThis.fetch;
   }
 
   test("should throw SaynaServerError with 403 status on getLiveKitToken when room is owned by another tenant", async () => {
@@ -922,7 +1029,8 @@ describe("SaynaClient REST Error Mapping", () => {
       ok: false,
       status: 403,
       statusText: "Forbidden",
-      json: async () => Promise.resolve({ error: "Room owned by another tenant" }),
+      json: async () =>
+        Promise.resolve({ error: "Room owned by another tenant" }),
     });
 
     try {
@@ -952,8 +1060,7 @@ describe("SaynaClient REST Error Mapping", () => {
         status: 403,
         statusText: "Forbidden",
         json: async () => Promise.reject(new Error("No JSON body")),
-      })
-    ) as unknown as typeof globalThis.fetch;
+      })) as unknown as typeof globalThis.fetch;
 
     try {
       await client.getLiveKitToken("test-room", "Jane", "jane-1");
@@ -984,7 +1091,11 @@ describe("SaynaClient REST Error Mapping", () => {
     {
       name: "sipTransferRest",
       callMethod: async (client) =>
-        client.sipTransferRest("call-room-123", "sip_participant_456", "+15551234567"),
+        client.sipTransferRest(
+          "call-room-123",
+          "sip_participant_456",
+          "+15551234567"
+        ),
       expectedEndpoint: "sip/transfer",
     },
     {
@@ -996,7 +1107,12 @@ describe("SaynaClient REST Error Mapping", () => {
     {
       name: "muteLiveKitParticipantTrack",
       callMethod: async (client) =>
-        client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", true),
+        client.muteLiveKitParticipantTrack(
+          "my-room",
+          "user-alice-456",
+          "TR_abc123",
+          true
+        ),
       expectedEndpoint: "livekit/participant/mute",
     },
   ];

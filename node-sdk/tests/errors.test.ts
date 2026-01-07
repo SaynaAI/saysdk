@@ -99,11 +99,7 @@ describe("SaynaServerError", () => {
   });
 
   test("should create error with status and endpoint", () => {
-    const error = new SaynaServerError(
-      "Access denied",
-      403,
-      "livekit/token"
-    );
+    const error = new SaynaServerError("Access denied", 403, "livekit/token");
     expect(error.message).toBe("Access denied");
     expect(error.status).toBe(403);
     expect(error.endpoint).toBe("livekit/token");

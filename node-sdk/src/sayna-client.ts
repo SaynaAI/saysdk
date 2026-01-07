@@ -443,7 +443,7 @@ export class SaynaClient {
    * @param responseType - Expected response type: "json" or "arrayBuffer"
    * @returns Promise resolving to the parsed response
    * @throws {SaynaConnectionError} If the network request fails
-   * @throws {SaynaServerError} If the server returns an error response
+   * @throws {SaynaServerError} If the server returns an error response (includes status and endpoint)
    */
   private async fetchFromSayna<T>(
     endpoint: string,
@@ -451,7 +451,10 @@ export class SaynaClient {
     responseType: "json" | "arrayBuffer" = "json"
   ): Promise<T> {
     const httpUrl = this.getHttpUrl();
-    const url = `${httpUrl}${httpUrl.endsWith("/") ? "" : "/"}${endpoint.startsWith("/") ? endpoint.slice(1) : endpoint}`;
+    const normalizedEndpoint = endpoint.startsWith("/")
+      ? endpoint.slice(1)
+      : endpoint;
+    const url = `${httpUrl}${httpUrl.endsWith("/") ? "" : "/"}${normalizedEndpoint}`;
 
     // Merge default headers with user-provided headers
     const headers: Record<string, string> = {
@@ -492,7 +495,19 @@ export class SaynaClient {
         } catch {
           errorMessage = `Request failed: ${response.status} ${response.statusText}`;
         }
-        throw new SaynaServerError(errorMessage);
+
+        // Enhance error messages for specific status codes
+        if (response.status === 403) {
+          errorMessage = `Access denied: ${errorMessage}`;
+        } else if (response.status === 404) {
+          errorMessage = `Not found or not accessible: ${errorMessage}`;
+        }
+
+        throw new SaynaServerError(
+          errorMessage,
+          response.status,
+          normalizedEndpoint
+        );
       }
 
       // Parse response based on expected type
@@ -869,13 +884,17 @@ export class SaynaClient {
   /**
    * Issues a LiveKit access token for a participant.
    *
-   * @param roomName - LiveKit room to join or create
+   * Room names are used as-is; the SDK does not rewrite or prefix them. When authentication
+   * is enabled, this endpoint creates the room if missing and sets room ownership metadata.
+   *
+   * @param roomName - LiveKit room to join or create. Provide the clean room name without any prefix.
    * @param participantName - Display name assigned to the participant
    * @param participantIdentity - Unique identifier for the participant
    * @returns Promise that resolves with the LiveKit token and connection details
    * @throws {SaynaValidationError} If any parameter is empty
    * @throws {SaynaConnectionError} If the request fails
-   * @throws {SaynaServerError} If server returns an error
+   * @throws {SaynaServerError} If server returns an error. A 403 status indicates the room
+   *   is owned by another tenant; do not retry with a modified room name.
    *
    * @example
    * ```typescript
@@ -916,12 +935,13 @@ export class SaynaClient {
   }
 
   /**
-   * Lists all LiveKit rooms belonging to the authenticated tenant.
+   * Lists LiveKit rooms accessible to the authenticated context.
    *
-   * Room names are automatically prefixed with the tenant ID (from the JWT token)
-   * for isolation. Only rooms matching your tenant prefix are returned.
+   * Room listings are scoped server-side based on authentication. When authentication is
+   * enabled, this endpoint may return fewer rooms than before (only those you have access to).
+   * Room names are not modified by the SDK.
    *
-   * @returns Promise that resolves with the list of rooms
+   * @returns Promise that resolves with the list of accessible rooms
    * @throws {SaynaConnectionError} If the request fails
    * @throws {SaynaServerError} If server returns an error (e.g., LiveKit not configured)
    *
@@ -940,14 +960,15 @@ export class SaynaClient {
   /**
    * Retrieves detailed information about a specific LiveKit room including participants.
    *
-   * The room name is automatically prefixed with the tenant ID (from the JWT token)
-   * for isolation. You should provide the room name without the tenant prefix.
+   * Room names are used as-is; the SDK does not rewrite or prefix them. Access is
+   * enforced server-side based on room ownership metadata.
    *
-   * @param roomName - Name of the room to retrieve (without tenant prefix)
+   * @param roomName - Name of the room to retrieve
    * @returns Promise that resolves with detailed room information including participants
    * @throws {SaynaValidationError} If roomName is empty
    * @throws {SaynaConnectionError} If the request fails
-   * @throws {SaynaServerError} If server returns an error (e.g., room not found, LiveKit not configured)
+   * @throws {SaynaServerError} If server returns an error. A 404 status can mean "not found"
+   *   or "not accessible" when room ownership is enforced.
    *
    * @example
    * ```typescript
@@ -971,18 +992,19 @@ export class SaynaClient {
   /**
    * Removes a participant from a LiveKit room, forcibly disconnecting them.
    *
-   * The room name is automatically prefixed with the tenant ID (from the JWT token)
-   * for isolation. You should provide the room name without the tenant prefix.
+   * Room names are used as-is; the SDK does not rewrite or prefix them. Access is
+   * enforced server-side based on room ownership metadata.
    *
    * **Important:** This does not invalidate the participant's token. To prevent
    * rejoining, use short-lived tokens and avoid issuing new tokens to removed participants.
    *
-   * @param roomName - Name of the room where the participant is connected (without tenant prefix)
+   * @param roomName - Name of the room where the participant is connected
    * @param participantIdentity - The identity of the participant to remove
    * @returns Promise that resolves with the removal confirmation
    * @throws {SaynaValidationError} If roomName or participantIdentity is empty
    * @throws {SaynaConnectionError} If the request fails
-   * @throws {SaynaServerError} If server returns an error (e.g., participant not found, LiveKit not configured)
+   * @throws {SaynaServerError} If server returns an error. A 404 status can mean "not found"
+   *   or "not accessible" when room ownership is enforced.
    *
    * @example
    * ```typescript
@@ -1019,17 +1041,18 @@ export class SaynaClient {
   /**
    * Mutes or unmutes a participant's published track in a LiveKit room.
    *
-   * The room name is automatically prefixed with the tenant ID (from the JWT token)
-   * for isolation. You should provide the room name without the tenant prefix.
+   * Room names are used as-is; the SDK does not rewrite or prefix them. Access is
+   * enforced server-side based on room ownership metadata.
    *
-   * @param roomName - Name of the room where the participant is connected (without tenant prefix)
+   * @param roomName - Name of the room where the participant is connected
    * @param participantIdentity - The identity of the participant whose track to mute
    * @param trackSid - The session ID of the track to mute/unmute
    * @param muted - True to mute, false to unmute
    * @returns Promise that resolves with the mute operation result
    * @throws {SaynaValidationError} If roomName, participantIdentity, or trackSid is empty, or if muted is not a boolean
    * @throws {SaynaConnectionError} If the request fails
-   * @throws {SaynaServerError} If server returns an error (e.g., track or participant not found, LiveKit not configured)
+   * @throws {SaynaServerError} If server returns an error. A 404 status can mean "not found"
+   *   or "not accessible" when room ownership is enforced.
    *
    * @example
    * ```typescript
@@ -1094,21 +1117,22 @@ export class SaynaClient {
    * when you need to transfer a SIP call from outside the active WebSocket session,
    * or when you want to specify a particular room and participant explicitly.
    *
-   * The room name is automatically prefixed with the tenant ID (from the JWT token)
-   * for isolation. You should provide the room name without the tenant prefix.
+   * Room names are used as-is; the SDK does not rewrite or prefix them. Access is
+   * enforced server-side based on room ownership metadata.
    *
    * **Important Notes:**
    * - Only SIP participants can be transferred
    * - A successful response indicates the transfer has been **initiated**, not necessarily completed
    * - The actual transfer may take several seconds
    *
-   * @param roomName - Name of the room where the SIP participant is connected (without tenant prefix)
+   * @param roomName - Name of the room where the SIP participant is connected
    * @param participantIdentity - The identity of the SIP participant to transfer
    * @param transferTo - The phone number to transfer to (international, national, or extension format)
    * @returns Promise that resolves with the transfer status
    * @throws {SaynaValidationError} If roomName, participantIdentity, or transferTo is empty
    * @throws {SaynaConnectionError} If the request fails
-   * @throws {SaynaServerError} If server returns an error (e.g., invalid phone, participant not found)
+   * @throws {SaynaServerError} If server returns an error. A 404 status can mean "not found"
+   *   or "not accessible" when room ownership is enforced.
    *
    * @example
    * ```typescript
@@ -1214,8 +1238,8 @@ export class SaynaClient {
    * @example
    * ```typescript
    * const response = await client.setSipHooks([
-   *   { host: "example.com", url: "https://webhook.example.com/events" },
-   *   { host: "another.com", url: "https://webhook.another.com/events" }
+   *   { host: "example.com", url: "https://webhook.example.com/events", auth_id: "tenant-123" },
+   *   { host: "another.com", url: "https://webhook.another.com/events", auth_id: "" }  // Empty for unauthenticated mode
    * ]);
    * console.log("Total hooks configured:", response.hooks.length);
    * ```
@@ -1246,6 +1270,12 @@ export class SaynaClient {
       ) {
         throw new SaynaValidationError(
           `hooks[${i}].url must be a non-empty string`
+        );
+      }
+      // auth_id is required but may be an empty string for unauthenticated mode
+      if (typeof hook.auth_id !== "string") {
+        throw new SaynaValidationError(
+          `hooks[${i}].auth_id must be a string`
         );
       }
     }

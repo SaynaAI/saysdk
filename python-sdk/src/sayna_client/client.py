@@ -316,6 +316,9 @@ class SaynaClient:
     ) -> LiveKitTokenResponse:
         """Issue a LiveKit access token for a participant.
 
+        Room names are sent as-is; the SDK does not modify them. Access scoping
+        is enforced server-side based on room metadata.
+
         Args:
             room_name: LiveKit room to join or create
             participant_name: Display name for the participant
@@ -326,6 +329,8 @@ class SaynaClient:
 
         Raises:
             SaynaValidationError: If any field is blank
+            SaynaHttpError: If 403 (ownership conflict) - the room exists but belongs
+                to a different authenticated context. Do not retry with modified names.
             SaynaServerError: If token generation fails
         """
         request = LiveKitTokenRequest(
@@ -337,11 +342,11 @@ class SaynaClient:
         return LiveKitTokenResponse(**data)
 
     async def get_livekit_rooms(self) -> LiveKitRoomsResponse:
-        """List all LiveKit rooms for the authenticated tenant.
+        """List LiveKit rooms accessible to the authenticated context.
 
-        Returns a list of rooms belonging to the authenticated client. Room names
-        include the tenant prefix (e.g., "project1_my-room"). The server automatically
-        filters rooms based on the auth.id from the JWT token.
+        Room listings are scoped server-side and may return fewer rooms than
+        exist on the server. Room names are returned as-is; the SDK does not
+        modify them.
 
         Returns:
             LiveKitRoomsResponse containing the list of rooms with summary info
@@ -360,11 +365,11 @@ class SaynaClient:
     async def get_livekit_room(self, room_name: str) -> LiveKitRoomDetails:
         """Get detailed information about a specific LiveKit room including participants.
 
-        The room name provided should be without the tenant prefix. The server
-        automatically applies the tenant prefix (auth.id) for isolation.
+        Room names are sent as-is; the SDK does not modify them. Access scoping
+        is enforced server-side based on room metadata.
 
         Args:
-            room_name: Name of the room to retrieve (without tenant prefix)
+            room_name: Name of the room to retrieve
 
         Returns:
             LiveKitRoomDetails containing room info and participants list.
@@ -373,8 +378,9 @@ class SaynaClient:
 
         Raises:
             SaynaValidationError: If room_name is empty or whitespace-only
-            SaynaServerError: If the server returns an error (e.g., room not found,
-                LiveKit not configured)
+            SaynaHttpError: If 404 - the room was not found or not accessible
+                (may exist but belongs to a different authenticated context)
+            SaynaServerError: If the server returns an error (e.g., LiveKit not configured)
 
         Example:
             >>> room = await client.get_livekit_room("conversation-room-123")
@@ -397,25 +403,26 @@ class SaynaClient:
     ) -> RemoveLiveKitParticipantResponse:
         """Remove a participant from a LiveKit room, forcibly disconnecting them.
 
-        The room name provided should be without the tenant prefix. The server
-        automatically applies the tenant prefix (auth.id) for isolation.
+        Room names are sent as-is; the SDK does not modify them. Access scoping
+        is enforced server-side based on room metadata.
 
         Note: This does not invalidate the participant's token. To prevent
         rejoining, use short-lived tokens and avoid issuing new tokens to
         removed participants.
 
         Args:
-            room_name: Name of the room (without tenant prefix)
+            room_name: Name of the room
             participant_identity: Identity of the participant to remove
 
         Returns:
-            RemoveLiveKitParticipantResponse containing status, normalized room name
-            (with tenant prefix), and participant identity
+            RemoveLiveKitParticipantResponse containing status, room name,
+            and participant identity
 
         Raises:
             SaynaValidationError: If room_name or participant_identity is empty/whitespace
-            SaynaServerError: If the server returns an error (e.g., participant not found,
-                LiveKit not configured)
+            SaynaHttpError: If 404 - the room or participant was not found or not accessible
+                (room may exist but belong to a different authenticated context)
+            SaynaServerError: If the server returns an error (e.g., LiveKit not configured)
 
         Example:
             >>> response = await client.remove_livekit_participant(
@@ -450,25 +457,25 @@ class SaynaClient:
     ) -> MuteLiveKitParticipantResponse:
         """Mute or unmute a participant's published track in a LiveKit room.
 
-        The room name provided should be without the tenant prefix. The server
-        automatically applies the tenant prefix (auth.id) for isolation and
-        returns the normalized room name in the response.
+        Room names are sent as-is; the SDK does not modify them. Access scoping
+        is enforced server-side based on room metadata.
 
         Args:
-            room_name: Name of the room (without tenant prefix)
+            room_name: Name of the room
             participant_identity: Identity of the participant whose track to mute
             track_sid: Session ID of the track to mute/unmute
             muted: True to mute, False to unmute
 
         Returns:
-            MuteLiveKitParticipantResponse containing the normalized room name
-            (with tenant prefix), participant identity, track SID, and muted state
+            MuteLiveKitParticipantResponse containing the room name,
+            participant identity, track SID, and muted state
 
         Raises:
             SaynaValidationError: If room_name, participant_identity, or track_sid
                 is empty/whitespace, or if muted is not a boolean
-            SaynaServerError: If the server returns an error (e.g., track not found,
-                LiveKit not configured)
+            SaynaHttpError: If 404 - the room or track was not found or not accessible
+                (room may exist but belong to a different authenticated context)
+            SaynaServerError: If the server returns an error (e.g., LiveKit not configured)
 
         Example:
             >>> response = await client.mute_livekit_participant_track(
@@ -526,6 +533,11 @@ class SaynaClient:
         Existing hooks with matching hosts (case-insensitive) are replaced.
         New hooks are added to the existing configuration.
 
+        The auth_id field is required for each hook. It associates inbound SIP calls
+        with a tenant for room ownership. When AUTH_REQUIRED=true on the server,
+        auth_id must be non-empty. When AUTH_REQUIRED=false, auth_id may be empty
+        but must still be provided.
+
         Args:
             hooks: List of SipHook objects to add or replace
 
@@ -539,8 +551,16 @@ class SaynaClient:
         Example:
             >>> from sayna_client import SipHook
             >>> hooks = [
-            ...     SipHook(host="example.com", url="https://webhook.example.com/events"),
-            ...     SipHook(host="another.com", url="https://webhook.another.com/events"),
+            ...     SipHook(
+            ...         host="example.com",
+            ...         url="https://webhook.example.com/events",
+            ...         auth_id="tenant-123",
+            ...     ),
+            ...     SipHook(
+            ...         host="another.com",
+            ...         url="https://webhook.another.com/events",
+            ...         auth_id="tenant-456",
+            ...     ),
             ... ]
             >>> response = await client.set_sip_hooks(hooks)
             >>> print(f"Total hooks: {len(response.hooks)}")
@@ -588,12 +608,11 @@ class SaynaClient:
         LiveKit session. Use this method when you need to transfer a SIP participant
         in a room without an active WebSocket connection.
 
-        The room name provided should be without the tenant prefix. The server
-        automatically applies the tenant prefix (auth.id) for isolation.
+        Room names are sent as-is; the SDK does not modify them. Access scoping
+        is enforced server-side based on room metadata.
 
         Args:
             room_name: Name of the LiveKit room where the SIP participant is connected
-                (without tenant prefix)
             participant_identity: Identity of the SIP participant to transfer.
                 Can be obtained by listing participants via get_livekit_room()
             transfer_to: Phone number to transfer the call to. Supports international
@@ -602,14 +621,15 @@ class SaynaClient:
 
         Returns:
             SipTransferResponse containing the status ("initiated" or "completed"),
-            normalized room name (with tenant prefix), participant identity, and
-            normalized transfer_to (with tel: prefix)
+            room name, participant identity, and normalized transfer_to (with tel: prefix)
 
         Raises:
             SaynaValidationError: If room_name, participant_identity, or transfer_to
                 is empty/whitespace
-            SaynaServerError: If the server returns an error (e.g., participant not
-                found, not a SIP participant, LiveKit not configured)
+            SaynaHttpError: If 404 - the room or participant was not found or not accessible
+                (room may exist but belong to a different authenticated context)
+            SaynaServerError: If the server returns an error (e.g., not a SIP participant,
+                LiveKit not configured)
 
         Example:
             >>> response = await client.sip_transfer_rest(

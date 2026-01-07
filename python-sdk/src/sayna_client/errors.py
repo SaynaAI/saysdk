@@ -1,6 +1,6 @@
 """Custom exceptions for the Sayna SDK."""
 
-from typing import Any
+from typing import Any, Optional
 
 
 class SaynaError(Exception):
@@ -70,12 +70,60 @@ class SaynaValidationError(SaynaError):
 
 
 class SaynaServerError(SaynaError):
-    """Error raised when the server returns an error."""
+    """Error raised when the server returns an error.
 
-    def __init__(self, message: str) -> None:
+    This error includes optional HTTP status code and endpoint information
+    to help diagnose server-side issues.
+
+    Attributes:
+        message: Error description
+        status_code: HTTP status code (e.g., 403, 404, 500)
+        endpoint: The API endpoint that returned the error
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        endpoint: Optional[str] = None,
+    ) -> None:
         """Initialize the error.
 
         Args:
             message: Error description
+            status_code: HTTP status code from the server response
+            endpoint: API endpoint path that returned the error
         """
         super().__init__(message)
+        self.status_code = status_code
+        self.endpoint = endpoint
+
+
+class SaynaHttpError(SaynaServerError):
+    """Error raised for HTTP-specific failures with status code context.
+
+    This is a specialized subclass of SaynaServerError that always includes
+    the HTTP status code. Use this for HTTP 4xx/5xx errors where the status
+    code is meaningful for error handling (e.g., 403 for ownership conflicts,
+    404 for not found or not accessible).
+
+    Attributes:
+        message: Error description
+        status_code: HTTP status code (always set)
+        endpoint: The API endpoint that returned the error
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int,
+        endpoint: Optional[str] = None,
+    ) -> None:
+        """Initialize the error.
+
+        Args:
+            message: Error description
+            status_code: HTTP status code from the server response (required)
+            endpoint: API endpoint path that returned the error
+        """
+        super().__init__(message, status_code=status_code, endpoint=endpoint)

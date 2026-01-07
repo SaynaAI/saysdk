@@ -5,12 +5,18 @@ from typing import Any, Optional
 
 import aiohttp
 
-from sayna_client.errors import SaynaServerError, SaynaValidationError
+from sayna_client.errors import SaynaHttpError, SaynaServerError, SaynaValidationError
 
 
 # HTTP status code constants
 _HTTP_CLIENT_ERROR = 400
+_HTTP_FORBIDDEN = 403
+_HTTP_NOT_FOUND = 404
 _HTTP_SERVER_ERROR = 500
+
+# Semantic error message prefixes
+_PREFIX_403 = "Access denied: "
+_PREFIX_404 = "Not found or not accessible: "
 
 
 class SaynaHttpClient:
@@ -59,14 +65,15 @@ class SaynaHttpClient:
             JSON response as a dictionary
 
         Raises:
-            SaynaServerError: If the server returns an error
-            SaynaValidationError: If the request is invalid
+            SaynaHttpError: If the server returns 403 or 404
+            SaynaServerError: If the server returns a 5xx error
+            SaynaValidationError: If the request is invalid (other 4xx errors)
         """
         session = await self._ensure_session()
         url = f"{self.base_url}{endpoint}"
 
         async with session.get(url, params=params) as response:
-            return await self._handle_response(response)
+            return await self._handle_response(response, endpoint=endpoint)
 
     async def post(
         self,
@@ -85,14 +92,15 @@ class SaynaHttpClient:
             JSON response as a dictionary
 
         Raises:
-            SaynaServerError: If the server returns an error
-            SaynaValidationError: If the request is invalid
+            SaynaHttpError: If the server returns 403 or 404
+            SaynaServerError: If the server returns a 5xx error
+            SaynaValidationError: If the request is invalid (other 4xx errors)
         """
         session = await self._ensure_session()
         url = f"{self.base_url}{endpoint}"
 
         async with session.post(url, data=data, json=json_data) as response:
-            return await self._handle_response(response)
+            return await self._handle_response(response, endpoint=endpoint)
 
     async def delete(
         self,
@@ -109,14 +117,15 @@ class SaynaHttpClient:
             JSON response as a dictionary
 
         Raises:
-            SaynaServerError: If the server returns an error
-            SaynaValidationError: If the request is invalid
+            SaynaHttpError: If the server returns 403 or 404
+            SaynaServerError: If the server returns a 5xx error
+            SaynaValidationError: If the request is invalid (other 4xx errors)
         """
         session = await self._ensure_session()
         url = f"{self.base_url}{endpoint}"
 
         async with session.delete(url, json=json_data) as response:
-            return await self._handle_response(response)
+            return await self._handle_response(response, endpoint=endpoint)
 
     async def get_binary(
         self,
@@ -133,8 +142,9 @@ class SaynaHttpClient:
             Tuple of (binary_data, response_headers)
 
         Raises:
-            SaynaServerError: If the server returns an error
-            SaynaValidationError: If the request is invalid
+            SaynaHttpError: If the server returns 403 or 404
+            SaynaServerError: If the server returns a 5xx error
+            SaynaValidationError: If the request is invalid (other 4xx errors)
         """
         session = await self._ensure_session()
         url = f"{self.base_url}{endpoint}"
@@ -148,8 +158,17 @@ class SaynaHttpClient:
                 except Exception:
                     error_msg = f"HTTP {response.status}: {response.reason}"
 
-                if response.status >= _HTTP_SERVER_ERROR:
-                    raise SaynaServerError(error_msg)
+                status = response.status
+                if status >= _HTTP_SERVER_ERROR:
+                    raise SaynaServerError(error_msg, status_code=status, endpoint=endpoint)
+                if status == _HTTP_FORBIDDEN:
+                    raise SaynaHttpError(
+                        f"{_PREFIX_403}{error_msg}", status_code=status, endpoint=endpoint
+                    )
+                if status == _HTTP_NOT_FOUND:
+                    raise SaynaHttpError(
+                        f"{_PREFIX_404}{error_msg}", status_code=status, endpoint=endpoint
+                    )
                 raise SaynaValidationError(error_msg)
 
             binary_data = await response.read()
@@ -171,8 +190,9 @@ class SaynaHttpClient:
             Tuple of (binary_data, response_headers)
 
         Raises:
-            SaynaServerError: If the server returns an error
-            SaynaValidationError: If the request is invalid
+            SaynaHttpError: If the server returns 403 or 404
+            SaynaServerError: If the server returns a 5xx error
+            SaynaValidationError: If the request is invalid (other 4xx errors)
         """
         session = await self._ensure_session()
         url = f"{self.base_url}{endpoint}"
@@ -186,26 +206,42 @@ class SaynaHttpClient:
                 except Exception:
                     error_msg = f"HTTP {response.status}: {response.reason}"
 
-                if response.status >= _HTTP_SERVER_ERROR:
-                    raise SaynaServerError(error_msg)
+                status = response.status
+                if status >= _HTTP_SERVER_ERROR:
+                    raise SaynaServerError(error_msg, status_code=status, endpoint=endpoint)
+                if status == _HTTP_FORBIDDEN:
+                    raise SaynaHttpError(
+                        f"{_PREFIX_403}{error_msg}", status_code=status, endpoint=endpoint
+                    )
+                if status == _HTTP_NOT_FOUND:
+                    raise SaynaHttpError(
+                        f"{_PREFIX_404}{error_msg}", status_code=status, endpoint=endpoint
+                    )
                 raise SaynaValidationError(error_msg)
 
             binary_data = await response.read()
             headers = dict(response.headers)
             return binary_data, headers
 
-    async def _handle_response(self, response: aiohttp.ClientResponse) -> dict[str, Any]:
+    async def _handle_response(
+        self,
+        response: aiohttp.ClientResponse,
+        endpoint: Optional[str] = None,
+    ) -> dict[str, Any]:
         """Handle HTTP response and raise appropriate errors.
 
         Args:
             response: aiohttp response object
+            endpoint: API endpoint path for error context
 
         Returns:
             Parsed JSON response
 
         Raises:
+            SaynaHttpError: If the server returns a 403 (ownership conflict) or 404
+                (not found or not accessible)
             SaynaServerError: If the server returns a 5xx error
-            SaynaValidationError: If the request is invalid (4xx error)
+            SaynaValidationError: If the request is invalid (other 4xx errors)
         """
         if response.status >= _HTTP_CLIENT_ERROR:
             try:
@@ -214,8 +250,23 @@ class SaynaHttpClient:
             except Exception:
                 error_msg = f"HTTP {response.status}: {response.reason}"
 
-            if response.status >= _HTTP_SERVER_ERROR:
-                raise SaynaServerError(error_msg)
+            status = response.status
+
+            if status >= _HTTP_SERVER_ERROR:
+                raise SaynaServerError(error_msg, status_code=status, endpoint=endpoint)
+
+            # Handle 403 (ownership conflict) and 404 (not found or not accessible)
+            # with SaynaHttpError for better error context
+            if status == _HTTP_FORBIDDEN:
+                raise SaynaHttpError(
+                    f"{_PREFIX_403}{error_msg}", status_code=status, endpoint=endpoint
+                )
+            if status == _HTTP_NOT_FOUND:
+                # 404 may indicate "not found or not accessible" for room-scoped operations
+                raise SaynaHttpError(
+                    f"{_PREFIX_404}{error_msg}", status_code=status, endpoint=endpoint
+                )
+
             raise SaynaValidationError(error_msg)
 
         try:
@@ -223,7 +274,7 @@ class SaynaHttpClient:
             return json_response
         except json.JSONDecodeError as e:
             msg = f"Failed to decode JSON response: {e}"
-            raise SaynaServerError(msg) from e
+            raise SaynaServerError(msg, endpoint=endpoint) from e
 
     async def __aenter__(self) -> "SaynaHttpClient":
         """Async context manager entry."""

@@ -97,6 +97,33 @@ describe("SaynaServerError", () => {
     const error = new SaynaServerError("test");
     expect(error).toBeInstanceOf(SaynaError);
   });
+
+  test("should create error with status and endpoint", () => {
+    const error = new SaynaServerError(
+      "Access denied",
+      403,
+      "livekit/token"
+    );
+    expect(error.message).toBe("Access denied");
+    expect(error.status).toBe(403);
+    expect(error.endpoint).toBe("livekit/token");
+  });
+
+  test("should have undefined status and endpoint when not provided", () => {
+    const error = new SaynaServerError("Server error");
+    expect(error.status).toBeUndefined();
+    expect(error.endpoint).toBeUndefined();
+  });
+
+  test("should create error with 404 status for not accessible", () => {
+    const error = new SaynaServerError(
+      "Not found or not accessible",
+      404,
+      "livekit/rooms/my-room"
+    );
+    expect(error.status).toBe(404);
+    expect(error.endpoint).toBe("livekit/rooms/my-room");
+  });
 });
 
 describe("Error Hierarchy", () => {

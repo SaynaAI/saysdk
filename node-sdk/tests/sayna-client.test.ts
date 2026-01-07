@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { SaynaClient } from "../src/sayna-client";
-import { SaynaValidationError, SaynaNotConnectedError } from "../src/errors";
+import { SaynaValidationError, SaynaNotConnectedError, SaynaServerError } from "../src/errors";
 import type { STTConfig, TTSConfig } from "../src/types";
 
 function getTestSTTConfig(): STTConfig {
@@ -760,15 +760,15 @@ describe("SaynaClient SIP Hooks Methods", () => {
     );
 
     expect(async () =>
-      client.setSipHooks([{ host: "", url: "https://example.com" }])
+      client.setSipHooks([{ host: "", url: "https://example.com", auth_id: "tenant-1" }])
     ).toThrow("hooks[0].host must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: "   ", url: "https://example.com" }])
+      client.setSipHooks([{ host: "   ", url: "https://example.com", auth_id: "tenant-1" }])
     ).toThrow("hooks[0].host must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: 123 as any, url: "https://example.com" }])
+      client.setSipHooks([{ host: 123 as any, url: "https://example.com", auth_id: "tenant-1" }])
     ).toThrow("hooks[0].host must be a non-empty string");
   });
 
@@ -780,16 +780,58 @@ describe("SaynaClient SIP Hooks Methods", () => {
     );
 
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: "" }])
+      client.setSipHooks([{ host: "example.com", url: "", auth_id: "tenant-1" }])
     ).toThrow("hooks[0].url must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: "   " }])
+      client.setSipHooks([{ host: "example.com", url: "   ", auth_id: "tenant-1" }])
     ).toThrow("hooks[0].url must be a non-empty string");
 
     expect(async () =>
-      client.setSipHooks([{ host: "example.com", url: 123 as any }])
+      client.setSipHooks([{ host: "example.com", url: 123 as any, auth_id: "tenant-1" }])
     ).toThrow("hooks[0].url must be a non-empty string");
+  });
+
+  test("should validate setSipHooks hook auth_id is a string", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    // Missing auth_id (undefined)
+    expect(async () =>
+      client.setSipHooks([{ host: "example.com", url: "https://example.com" } as any])
+    ).toThrow("hooks[0].auth_id must be a string");
+
+    // null auth_id
+    expect(async () =>
+      client.setSipHooks([{ host: "example.com", url: "https://example.com", auth_id: null as any }])
+    ).toThrow("hooks[0].auth_id must be a string");
+
+    // Number auth_id
+    expect(async () =>
+      client.setSipHooks([{ host: "example.com", url: "https://example.com", auth_id: 123 as any }])
+    ).toThrow("hooks[0].auth_id must be a string");
+  });
+
+  test("should allow empty string auth_id for unauthenticated mode", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    // This should pass validation (but will fail on network call)
+    // We're just testing that empty string is allowed
+    try {
+      await client.setSipHooks([
+        { host: "example.com", url: "https://example.com/webhook", auth_id: "" }
+      ]);
+    } catch (error) {
+      // Should fail on network, not validation
+      expect(error).not.toBeInstanceOf(SaynaValidationError);
+    }
   });
 
   test("should validate deleteSipHooks hosts is an array", () => {
@@ -842,6 +884,210 @@ describe("SaynaClient SIP Hooks Methods", () => {
     expect(async () => client.deleteSipHooks(["valid.com", ""])).toThrow(
       "hosts[1] must be a non-empty string"
     );
+  });
+});
+
+describe("SaynaClient REST Error Mapping", () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /**
+   * Helper to create a mock fetch response.
+   */
+  function createMockFetch(options: {
+    ok: boolean;
+    status: number;
+    statusText: string;
+    json: () => Promise<unknown>;
+  }): typeof globalThis.fetch {
+    return (async () => Promise.resolve(options)) as unknown as typeof globalThis.fetch;
+  }
+
+  test("should throw SaynaServerError with 403 status on getLiveKitToken when room is owned by another tenant", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    // Mock fetch to return 403 Forbidden
+    globalThis.fetch = createMockFetch({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      json: async () => Promise.resolve({ error: "Room owned by another tenant" }),
+    });
+
+    try {
+      await client.getLiveKitToken("my-room", "John Doe", "user-123");
+      expect.unreachable("Should have thrown SaynaServerError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SaynaServerError);
+      const serverError = error as SaynaServerError;
+      expect(serverError.message).toMatch(/^Access denied:/);
+      expect(serverError.message).toContain("Room owned by another tenant");
+      expect(serverError.status).toBe(403);
+      expect(serverError.endpoint).toBe("livekit/token");
+    }
+  });
+
+  test("should throw SaynaServerError with 403 for generic 403 error response", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    // Mock fetch to return 403 without JSON body
+    globalThis.fetch = (async () =>
+      Promise.resolve({
+        ok: false,
+        status: 403,
+        statusText: "Forbidden",
+        json: async () => Promise.reject(new Error("No JSON body")),
+      })
+    ) as unknown as typeof globalThis.fetch;
+
+    try {
+      await client.getLiveKitToken("test-room", "Jane", "jane-1");
+      expect.unreachable("Should have thrown SaynaServerError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SaynaServerError);
+      const serverError = error as SaynaServerError;
+      expect(serverError.message).toMatch(/^Access denied:/);
+      expect(serverError.status).toBe(403);
+      expect(serverError.endpoint).toBe("livekit/token");
+    }
+  });
+
+  /**
+   * Table-driven tests for 404 errors on room-scoped endpoints.
+   * These endpoints return 404 when access is denied (masked as "not found").
+   */
+  const notFoundEndpointTests: Array<{
+    name: string;
+    callMethod: (client: SaynaClient) => Promise<unknown>;
+    expectedEndpoint: string;
+  }> = [
+    {
+      name: "getLiveKitRoom",
+      callMethod: async (client) => client.getLiveKitRoom("test-room"),
+      expectedEndpoint: `livekit/rooms/${encodeURIComponent("test-room")}`,
+    },
+    {
+      name: "sipTransferRest",
+      callMethod: async (client) =>
+        client.sipTransferRest("call-room-123", "sip_participant_456", "+15551234567"),
+      expectedEndpoint: "sip/transfer",
+    },
+    {
+      name: "removeLiveKitParticipant",
+      callMethod: async (client) =>
+        client.removeLiveKitParticipant("my-room", "user-alice-456"),
+      expectedEndpoint: "livekit/participant",
+    },
+    {
+      name: "muteLiveKitParticipantTrack",
+      callMethod: async (client) =>
+        client.muteLiveKitParticipantTrack("my-room", "user-alice-456", "TR_abc123", true),
+      expectedEndpoint: "livekit/participant/mute",
+    },
+  ];
+
+  for (const { name, callMethod, expectedEndpoint } of notFoundEndpointTests) {
+    test(`should throw SaynaServerError with 404 status on ${name} when room not found or not accessible`, async () => {
+      const client = new SaynaClient(
+        "https://api.example.com",
+        getTestSTTConfig(),
+        getTestTTSConfig()
+      );
+
+      // Mock fetch to return 404 Not Found
+      globalThis.fetch = createMockFetch({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: async () => Promise.resolve({ error: "Room not found" }),
+      });
+
+      try {
+        await callMethod(client);
+        expect.unreachable("Should have thrown SaynaServerError");
+      } catch (error) {
+        expect(error).toBeInstanceOf(SaynaServerError);
+        const serverError = error as SaynaServerError;
+        expect(serverError.message).toMatch(/^Not found or not accessible:/);
+        expect(serverError.message).toContain("Room not found");
+        expect(serverError.status).toBe(404);
+        expect(serverError.endpoint).toBe(expectedEndpoint);
+      }
+    });
+  }
+
+  test("should handle 404 with room name containing special characters (URL encoding)", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const specialRoomName = "room/with spaces&special=chars";
+    const encodedRoomName = encodeURIComponent(specialRoomName);
+
+    // Mock fetch to return 404
+    globalThis.fetch = createMockFetch({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      json: async () => Promise.resolve({ error: "Room not found" }),
+    });
+
+    try {
+      await client.getLiveKitRoom(specialRoomName);
+      expect.unreachable("Should have thrown SaynaServerError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SaynaServerError);
+      const serverError = error as SaynaServerError;
+      expect(serverError.status).toBe(404);
+      expect(serverError.endpoint).toBe(`livekit/rooms/${encodedRoomName}`);
+    }
+  });
+
+  test("should preserve status 500 without modifying message prefix", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    // Mock fetch to return 500 Internal Server Error
+    globalThis.fetch = createMockFetch({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      json: async () => Promise.resolve({ error: "LiveKit not configured" }),
+    });
+
+    try {
+      await client.getLiveKitRooms();
+      expect.unreachable("Should have thrown SaynaServerError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SaynaServerError);
+      const serverError = error as SaynaServerError;
+      // 500 errors should not have "Access denied:" or "Not found or not accessible:" prefix
+      expect(serverError.message).not.toMatch(/^Access denied:/);
+      expect(serverError.message).not.toMatch(/^Not found or not accessible:/);
+      expect(serverError.message).toBe("LiveKit not configured");
+      expect(serverError.status).toBe(500);
+      expect(serverError.endpoint).toBe("livekit/rooms");
+    }
   });
 });
 

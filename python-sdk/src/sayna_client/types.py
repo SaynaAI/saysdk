@@ -317,6 +317,11 @@ class SipHook(BaseModel):
 
     Defines a mapping between a SIP domain pattern and a webhook URL
     that will receive forwarded SIP events.
+
+    The auth_id field is required by the API. It associates inbound SIP calls
+    with a tenant for room ownership. When AUTH_REQUIRED=true on the server,
+    auth_id must be non-empty. When AUTH_REQUIRED=false, auth_id may be empty
+    but must still be provided in the request.
     """
 
     host: str = Field(
@@ -326,6 +331,13 @@ class SipHook(BaseModel):
     url: str = Field(
         ...,
         description="HTTPS URL to forward webhook events to when the host pattern matches",
+    )
+    auth_id: str = Field(
+        ...,
+        description=(
+            "Tenant identifier for this hook (written to LiveKit room metadata). "
+            "Required by the API; may be empty when AUTH_REQUIRED=false on the server."
+        ),
     )
 
 
@@ -364,13 +376,13 @@ class RemoveLiveKitParticipantRequest(BaseModel):
     """Request body for DELETE /livekit/participant.
 
     Removes a participant from a LiveKit room, forcibly disconnecting them.
-    The room name should be provided without the tenant prefix - the server
-    automatically applies it for tenant isolation.
+    Room names are sent as-is; the SDK does not modify them. Access scoping
+    is enforced server-side based on room metadata.
     """
 
     room_name: str = Field(
         ...,
-        description="The LiveKit room name where the participant is connected (without tenant prefix)",
+        description="The LiveKit room name where the participant is connected",
     )
     participant_identity: str = Field(
         ...,
@@ -382,7 +394,8 @@ class RemoveLiveKitParticipantResponse(BaseModel):
     """Response from DELETE /livekit/participant.
 
     Confirms the successful removal of a participant from a LiveKit room.
-    The room name in the response includes the tenant prefix.
+    A 404 response may indicate "not found or not accessible" when the room
+    exists but belongs to a different authenticated context.
     """
 
     status: str = Field(
@@ -391,7 +404,7 @@ class RemoveLiveKitParticipantResponse(BaseModel):
     )
     room_name: str = Field(
         ...,
-        description="The normalized room name (with tenant prefix)",
+        description="The room name",
     )
     participant_identity: str = Field(
         ...,
@@ -403,13 +416,13 @@ class MuteLiveKitParticipantRequest(BaseModel):
     """Request body for POST /livekit/participant/mute.
 
     Mutes or unmutes a participant's published track in a LiveKit room.
-    The room name should be provided without the tenant prefix - the server
-    automatically applies it for tenant isolation.
+    Room names are sent as-is; the SDK does not modify them. Access scoping
+    is enforced server-side based on room metadata.
     """
 
     room_name: str = Field(
         ...,
-        description="The LiveKit room name where the participant is connected (without tenant prefix)",
+        description="The LiveKit room name where the participant is connected",
     )
     participant_identity: str = Field(
         ...,
@@ -429,12 +442,13 @@ class MuteLiveKitParticipantResponse(BaseModel):
     """Response from POST /livekit/participant/mute.
 
     Confirms the mute/unmute operation on a participant's track.
-    The room name in the response includes the tenant prefix.
+    A 404 response may indicate "not found or not accessible" when the room
+    exists but belongs to a different authenticated context.
     """
 
     room_name: str = Field(
         ...,
-        description="The normalized room name (with tenant prefix)",
+        description="The room name",
     )
     participant_identity: str = Field(
         ...,
@@ -454,13 +468,13 @@ class SipTransferRequest(BaseModel):
     """Request body for POST /sip/transfer.
 
     Initiates a SIP REFER transfer for a participant in a LiveKit room.
-    The room name should be provided without the tenant prefix - the server
-    automatically applies it for tenant isolation.
+    Room names are sent as-is; the SDK does not modify them. Access scoping
+    is enforced server-side based on room metadata.
     """
 
     room_name: str = Field(
         ...,
-        description="The LiveKit room name where the SIP participant is connected (without tenant prefix)",
+        description="The LiveKit room name where the SIP participant is connected",
     )
     participant_identity: str = Field(
         ...,
@@ -477,7 +491,8 @@ class SipTransferResponse(BaseModel):
 
     Confirms the SIP transfer operation. A status of "initiated" means the transfer
     request was sent but may still be in progress. A status of "completed" means
-    the transfer has finished successfully.
+    the transfer has finished successfully. A 404 response may indicate "not found
+    or not accessible" when the room exists but belongs to a different authenticated context.
     """
 
     status: Literal["initiated", "completed"] = Field(
@@ -486,7 +501,7 @@ class SipTransferResponse(BaseModel):
     )
     room_name: str = Field(
         ...,
-        description="The normalized room name where the transfer was initiated",
+        description="The room name where the transfer was initiated",
     )
     participant_identity: str = Field(
         ...,
@@ -501,12 +516,14 @@ class SipTransferResponse(BaseModel):
 class LiveKitRoomSummary(BaseModel):
     """Summary information for a LiveKit room.
 
-    Returned when listing rooms via GET /livekit/rooms.
+    Returned when listing rooms via GET /livekit/rooms. Room listings are
+    scoped to the authenticated context and may return fewer rooms than
+    exist on the server.
     """
 
     name: str = Field(
         ...,
-        description="The full room name (includes tenant prefix)",
+        description="The room name",
     )
     num_participants: int = Field(
         ...,
@@ -521,12 +538,13 @@ class LiveKitRoomSummary(BaseModel):
 class LiveKitRoomsResponse(BaseModel):
     """Response from GET /livekit/rooms endpoint.
 
-    Contains the list of all LiveKit rooms belonging to the authenticated tenant.
+    Contains the list of LiveKit rooms accessible to the authenticated context.
+    Room listings are scoped server-side and may return fewer rooms than exist.
     """
 
     rooms: list[LiveKitRoomSummary] = Field(
         ...,
-        description="List of rooms belonging to the authenticated client",
+        description="List of rooms accessible to the authenticated client",
     )
 
 
@@ -577,8 +595,10 @@ class LiveKitParticipantInfo(BaseModel):
 class LiveKitRoomDetails(BaseModel):
     """Detailed information about a LiveKit room including participants.
 
-    Returned from GET /livekit/rooms/{room_name} endpoint.
-    The room name is automatically prefixed with the tenant ID (auth.id) by the server.
+    Returned from GET /livekit/rooms/{room_name} endpoint. A 404 response may
+    indicate "not found or not accessible" when the room exists but belongs to
+    a different authenticated context. The metadata field is an opaque string;
+    do not parse it for access decisions as access is enforced server-side.
     """
 
     sid: str = Field(
@@ -587,7 +607,7 @@ class LiveKitRoomDetails(BaseModel):
     )
     name: str = Field(
         ...,
-        description="The full room name (includes tenant prefix)",
+        description="The room name",
     )
     num_participants: int = Field(
         ...,
@@ -603,7 +623,7 @@ class LiveKitRoomDetails(BaseModel):
     )
     metadata: str = Field(
         ...,
-        description="User-specified metadata for the room",
+        description="Opaque metadata string for the room; do not parse for access decisions",
     )
     active_recording: bool = Field(
         ...,

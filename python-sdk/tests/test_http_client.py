@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from sayna_client.errors import SaynaServerError, SaynaValidationError
+from sayna_client.errors import SaynaHttpError, SaynaServerError, SaynaValidationError
 from sayna_client.http_client import SaynaHttpClient
 
 
@@ -422,15 +422,15 @@ class TestSaynaHttpClientResponseHandling:
 
     @pytest.mark.asyncio
     async def test_handle_response_client_error_with_json(self) -> None:
-        """Test handling client error with JSON error message."""
+        """Test handling client error (non-403/404) with JSON error message."""
         client = SaynaHttpClient("https://api.example.com")
 
         mock_response = AsyncMock()
-        mock_response.status = 404
-        mock_response.reason = "Not Found"
-        mock_response.json = AsyncMock(return_value={"error": "Resource not found"})
+        mock_response.status = 400
+        mock_response.reason = "Bad Request"
+        mock_response.json = AsyncMock(return_value={"error": "Invalid request body"})
 
-        with pytest.raises(SaynaValidationError, match="Resource not found"):
+        with pytest.raises(SaynaValidationError, match="Invalid request body"):
             await client._handle_response(mock_response)
 
     @pytest.mark.asyncio
@@ -457,6 +457,221 @@ class TestSaynaHttpClientResponseHandling:
 
         with pytest.raises(SaynaServerError, match="Failed to decode JSON response"):
             await client._handle_response(mock_response)
+
+
+class TestSaynaHttpClientHttpErrors:
+    """Tests for 403/404 HTTP error handling with SaynaHttpError."""
+
+    @pytest.mark.asyncio
+    async def test_handle_response_403_raises_http_error(self) -> None:
+        """Test that 403 response raises SaynaHttpError with status code, endpoint, and prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 403
+        mock_response.reason = "Forbidden"
+        mock_response.json = AsyncMock(return_value={"error": "Room ownership conflict"})
+
+        with pytest.raises(SaynaHttpError) as exc_info:
+            await client._handle_response(mock_response, endpoint="/livekit/token")
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.endpoint == "/livekit/token"
+        assert exc_info.value.message.startswith("Access denied: ")
+        assert "Room ownership conflict" in str(exc_info.value.message)
+
+    @pytest.mark.asyncio
+    async def test_handle_response_404_raises_http_error(self) -> None:
+        """Test that 404 response raises SaynaHttpError with status code, endpoint, and prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_response.reason = "Not Found"
+        mock_response.json = AsyncMock(return_value={"error": "Room not found"})
+
+        with pytest.raises(SaynaHttpError) as exc_info:
+            await client._handle_response(mock_response, endpoint="/livekit/rooms/test-room")
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.endpoint == "/livekit/rooms/test-room"
+        assert exc_info.value.message.startswith("Not found or not accessible: ")
+        assert "Room not found" in str(exc_info.value.message)
+
+    @pytest.mark.asyncio
+    async def test_get_404_raises_http_error(self) -> None:
+        """Test that GET request with 404 raises SaynaHttpError with prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_response.reason = "Not Found"
+        mock_response.json = AsyncMock(return_value={"error": "Room not found"})
+
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaHttpError) as exc_info,
+        ):
+            await client.get("/livekit/rooms/missing-room")
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.endpoint == "/livekit/rooms/missing-room"
+        assert exc_info.value.message.startswith("Not found or not accessible: ")
+
+    @pytest.mark.asyncio
+    async def test_post_403_raises_http_error(self) -> None:
+        """Test that POST request with 403 raises SaynaHttpError with prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 403
+        mock_response.reason = "Forbidden"
+        mock_response.json = AsyncMock(return_value={"error": "Room belongs to different tenant"})
+
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaHttpError) as exc_info,
+        ):
+            await client.post("/livekit/token", json_data={"room_name": "test"})
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.endpoint == "/livekit/token"
+        assert exc_info.value.message.startswith("Access denied: ")
+
+    @pytest.mark.asyncio
+    async def test_server_error_includes_status_and_endpoint(self) -> None:
+        """Test that 5xx errors include status code and endpoint."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 500
+        mock_response.reason = "Internal Server Error"
+        mock_response.json = AsyncMock(return_value={"error": "Database unavailable"})
+
+        with pytest.raises(SaynaServerError) as exc_info:
+            await client._handle_response(mock_response, endpoint="/livekit/rooms")
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.endpoint == "/livekit/rooms"
+        assert "Database unavailable" in str(exc_info.value.message)
+
+
+class TestSaynaHttpClientBinaryErrors:
+    """Tests for 403/404 error handling in get_binary and post_binary methods."""
+
+    @pytest.mark.asyncio
+    async def test_get_binary_403_raises_http_error_with_prefix(self) -> None:
+        """Test that get_binary with 403 raises SaynaHttpError with Access denied prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 403
+        mock_response.reason = "Forbidden"
+        mock_response.json = AsyncMock(return_value={"error": "Access forbidden"})
+
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaHttpError) as exc_info,
+        ):
+            await client.get_binary("/recording/abc123")
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.endpoint == "/recording/abc123"
+        assert exc_info.value.message.startswith("Access denied: ")
+        assert "Access forbidden" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_get_binary_404_raises_http_error_with_prefix(self) -> None:
+        """Test that get_binary with 404 raises SaynaHttpError with Not found prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_response.reason = "Not Found"
+        mock_response.json = AsyncMock(return_value={"error": "Recording not found"})
+
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaHttpError) as exc_info,
+        ):
+            await client.get_binary("/recording/missing")
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.endpoint == "/recording/missing"
+        assert exc_info.value.message.startswith("Not found or not accessible: ")
+        assert "Recording not found" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_post_binary_403_raises_http_error_with_prefix(self) -> None:
+        """Test that post_binary with 403 raises SaynaHttpError with Access denied prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 403
+        mock_response.reason = "Forbidden"
+        mock_response.json = AsyncMock(return_value={"error": "Tenant mismatch"})
+
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaHttpError) as exc_info,
+        ):
+            await client.post_binary("/speak", json_data={"text": "Hello"})
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.endpoint == "/speak"
+        assert exc_info.value.message.startswith("Access denied: ")
+        assert "Tenant mismatch" in exc_info.value.message
+
+    @pytest.mark.asyncio
+    async def test_post_binary_404_raises_http_error_with_prefix(self) -> None:
+        """Test that post_binary with 404 raises SaynaHttpError with Not found prefix."""
+        client = SaynaHttpClient("https://api.example.com")
+
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_response.reason = "Not Found"
+        mock_response.json = AsyncMock(return_value={"error": "Resource not found"})
+
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
+        )
+
+        with (
+            patch.object(client, "_ensure_session", return_value=mock_session),
+            pytest.raises(SaynaHttpError) as exc_info,
+        ):
+            await client.post_binary("/speak", json_data={"text": "Hello"})
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.endpoint == "/speak"
+        assert exc_info.value.message.startswith("Not found or not accessible: ")
+        assert "Resource not found" in exc_info.value.message
 
 
 class TestSaynaHttpClientContextManager:

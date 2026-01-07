@@ -138,7 +138,7 @@ Retrieves all configured SIP webhook hooks from the runtime cache.
 ```typescript
 const response = await client.getSipHooks();
 for (const hook of response.hooks) {
-  console.log(`Host: ${hook.host}, URL: ${hook.url}`);
+  console.log(`Host: ${hook.host}, URL: ${hook.url}, Auth ID: ${hook.auth_id}`);
 }
 ```
 
@@ -152,10 +152,11 @@ Sets or updates SIP webhook hooks in the runtime cache. Hooks with matching host
 
 Each `SipHook` object contains:
 
-| field  | type     | description                             |
-| ------ | -------- | --------------------------------------- |
-| `host` | `string` | SIP domain pattern (case-insensitive).  |
-| `url`  | `string` | HTTPS URL to forward webhook events to. |
+| field     | type     | description                                                                                                            |
+| --------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `host`    | `string` | SIP domain pattern (case-insensitive).                                                                                 |
+| `url`     | `string` | HTTPS URL to forward webhook events to.                                                                                |
+| `auth_id` | `string` | Tenant identifier for this hook. Required but may be empty for unauthenticated mode. Treat as opaque; pass unchanged. |
 
 **Returns**: `Promise<SipHooksResponse>` - Object containing the merged list of all configured hooks.
 
@@ -163,10 +164,36 @@ Each `SipHook` object contains:
 
 ```typescript
 const response = await client.setSipHooks([
-  { host: "example.com", url: "https://webhook.example.com/events" },
-  { host: "another.com", url: "https://webhook.another.com/events" },
+  { host: "example.com", url: "https://webhook.example.com/events", auth_id: "tenant-123" },
+  { host: "another.com", url: "https://webhook.another.com/events", auth_id: "" },  // Empty for unauthenticated mode
 ]);
 console.log("Total hooks configured:", response.hooks.length);
+```
+
+---
+
+### Room Ownership and Access
+
+When authentication is enabled, the server enforces room-level access control:
+
+- **Room names are clean**: The SDK does not rewrite or prefix room names. Pass room names as-is.
+- **Room listings are scoped**: `getLiveKitRooms()` returns only rooms accessible to your authenticated context.
+- **403 on token requests**: `getLiveKitToken()` returns a 403 error if the room exists but is owned by another tenant. Do not retry with a modified room name.
+- **404 masks access denial**: For room-scoped operations (`getLiveKitRoom()`, `removeLiveKitParticipant()`, `muteLiveKitParticipantTrack()`, `sipTransferRest()`), a 404 response can mean "not found" or "not accessible."
+- **Inbound SIP rooms**: Rooms created by inbound SIP calls are owned by the routing configuration's `auth_id`. Access depends on your authentication context.
+- **WebSocket errors**: Ownership/access errors during WebSocket configuration are surfaced via the error callback. Retry with the correct room name if needed.
+
+Errors include HTTP status and endpoint information for easier debugging:
+
+```typescript
+try {
+  await client.getLiveKitToken("some-room", "user", "user-123");
+} catch (error) {
+  if (error instanceof SaynaServerError) {
+    console.log(`Status: ${error.status}, Endpoint: ${error.endpoint}`);
+    // Status: 403, Endpoint: livekit/token
+  }
+}
 ```
 
 ---

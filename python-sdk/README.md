@@ -19,6 +19,17 @@ Python SDK for Sayna's real-time voice interaction API. Send audio for speech re
 pip install sayna-client
 ```
 
+## Room Scoping
+
+Room names are sent to the server as-is; the SDK does not modify or prefix them. Access scoping is enforced server-side based on room metadata:
+
+- **Room listings** (`get_livekit_rooms`) are scoped to the authenticated context and may return fewer rooms than exist on the server.
+- **Room operations** (`get_livekit_room`, `remove_livekit_participant`, `mute_livekit_participant_track`, `sip_transfer_rest`) will return 404 if the room is not found or not accessible to the current authentication context.
+- **Token generation** (`get_livekit_token`) will return 403 if attempting to create a token for a room owned by a different tenant.
+- **Inbound SIP-created rooms** are owned by the routing configuration's `auth_id` and may not be accessible under other authentication contexts.
+
+Do not attempt to work around access errors by modifying room names—the SDK does not rewrite them and the server enforces ownership.
+
 ## Quick Start
 
 ```python
@@ -119,7 +130,7 @@ print(f"Received {len(audio_data)} bytes of {headers['Content-Type']}")
 
 #### `await client.get_livekit_token(room_name, participant_name, participant_identity)`
 
-Issues a LiveKit access token for a participant.
+Issues a LiveKit access token for a participant. Room names are sent as-is; the SDK does not modify them. Access scoping is enforced server-side.
 
 | Parameter | Type | Purpose |
 | --- | --- | --- |
@@ -128,6 +139,8 @@ Issues a LiveKit access token for a participant.
 | `participant_identity` | `str` | Unique identifier for the participant. |
 
 **Returns**: `LiveKitTokenResponse` - Object containing token, room name, participant identity, and LiveKit URL.
+
+**Raises**: `SaynaHttpError` with status 403 if the room exists but belongs to a different authenticated context (ownership conflict). Do not retry with modified names.
 
 **Example**:
 ```python
@@ -152,7 +165,7 @@ Retrieves all configured SIP webhook hooks from the runtime cache.
 ```python
 hooks = await client.get_sip_hooks()
 for hook in hooks.hooks:
-    print(f"{hook.host} -> {hook.url}")
+    print(f"{hook.host} -> {hook.url} (auth_id: {hook.auth_id})")
 ```
 
 ---
@@ -165,6 +178,8 @@ Adds or replaces SIP webhook hooks. Existing hooks with matching hosts (case-ins
 | --- | --- | --- |
 | `hooks` | `list[SipHook]` | List of SipHook objects to add or replace. |
 
+Each `SipHook` requires an `auth_id` field that associates inbound SIP calls with a tenant for room ownership. When `AUTH_REQUIRED=true` on the server, `auth_id` must be non-empty. When `AUTH_REQUIRED=false`, `auth_id` may be empty but must still be provided.
+
 **Returns**: `SipHooksResponse` - Object containing the merged list of all hooks (existing + new).
 
 **Example**:
@@ -172,8 +187,16 @@ Adds or replaces SIP webhook hooks. Existing hooks with matching hosts (case-ins
 from sayna_client import SipHook
 
 hooks = [
-    SipHook(host="example.com", url="https://webhook.example.com/events"),
-    SipHook(host="another.com", url="https://webhook.another.com/events"),
+    SipHook(
+        host="example.com",
+        url="https://webhook.example.com/events",
+        auth_id="tenant-123",
+    ),
+    SipHook(
+        host="another.com",
+        url="https://webhook.another.com/events",
+        auth_id="tenant-456",
+    ),
 ]
 response = await client.set_sip_hooks(hooks)
 print(f"Total hooks: {len(response.hooks)}")
@@ -236,7 +259,7 @@ client.register_on_tts_audio(handle_audio)
 
 #### `client.register_on_error(callback)`
 
-Registers a callback for error messages.
+Registers a callback for error messages. Ownership and access errors from WebSocket operations may arrive as error callbacks. If you receive access errors, verify that you are using the correct room name and that the room belongs to your authenticated context. Do not retry with modified names—the SDK does not rewrite room names.
 
 ---
 

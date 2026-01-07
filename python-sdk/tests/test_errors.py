@@ -5,6 +5,7 @@ import pytest
 from sayna_client.errors import (
     SaynaConnectionError,
     SaynaError,
+    SaynaHttpError,
     SaynaNotConnectedError,
     SaynaNotReadyError,
     SaynaServerError,
@@ -98,6 +99,85 @@ class TestSaynaServerError:
         assert str(error) == "Server error occurred"
         assert isinstance(error, SaynaError)
 
+    def test_server_error_with_status_code(self) -> None:
+        """Test server error with status code."""
+        error = SaynaServerError("Database unavailable", status_code=500)
+        assert error.message == "Database unavailable"
+        assert error.status_code == 500
+        assert error.endpoint is None
+
+    def test_server_error_with_endpoint(self) -> None:
+        """Test server error with endpoint."""
+        error = SaynaServerError("Not found", endpoint="/livekit/rooms/test")
+        assert error.message == "Not found"
+        assert error.status_code is None
+        assert error.endpoint == "/livekit/rooms/test"
+
+    def test_server_error_with_all_fields(self) -> None:
+        """Test server error with status code and endpoint."""
+        error = SaynaServerError(
+            "Internal error",
+            status_code=503,
+            endpoint="/health",
+        )
+        assert error.message == "Internal error"
+        assert error.status_code == 503
+        assert error.endpoint == "/health"
+
+
+class TestSaynaHttpError:
+    """Tests for SaynaHttpError."""
+
+    def test_http_error_basic(self) -> None:
+        """Test HTTP error with required status code."""
+        error = SaynaHttpError("Forbidden", status_code=403)
+        assert str(error) == "Forbidden"
+        assert error.status_code == 403
+        assert error.endpoint is None
+        assert isinstance(error, SaynaServerError)
+
+    def test_http_error_with_endpoint(self) -> None:
+        """Test HTTP error with endpoint."""
+        error = SaynaHttpError(
+            "Room not found",
+            status_code=404,
+            endpoint="/livekit/rooms/test-room",
+        )
+        assert error.message == "Room not found"
+        assert error.status_code == 404
+        assert error.endpoint == "/livekit/rooms/test-room"
+
+    def test_http_error_403_ownership_conflict(self) -> None:
+        """Test HTTP error for 403 ownership conflict."""
+        error = SaynaHttpError(
+            "Room exists but belongs to different tenant",
+            status_code=403,
+            endpoint="/livekit/token",
+        )
+        assert error.status_code == 403
+        assert "different tenant" in error.message
+
+    def test_http_error_404_not_accessible(self) -> None:
+        """Test HTTP error for 404 not found or not accessible."""
+        error = SaynaHttpError(
+            "Room not found or not accessible",
+            status_code=404,
+            endpoint="/livekit/rooms/my-room",
+        )
+        assert error.status_code == 404
+        assert "not accessible" in error.message
+
+    def test_http_error_inherits_from_server_error(self) -> None:
+        """Test that SaynaHttpError inherits from SaynaServerError."""
+        error = SaynaHttpError("Test", status_code=400)
+        assert isinstance(error, SaynaServerError)
+        assert isinstance(error, SaynaError)
+
+    def test_http_error_can_be_caught_as_server_error(self) -> None:
+        """Test that SaynaHttpError can be caught as SaynaServerError."""
+        with pytest.raises(SaynaServerError):
+            raise SaynaHttpError("Test", status_code=404)
+
 
 class TestErrorHierarchy:
     """Tests for error class hierarchy."""
@@ -110,6 +190,7 @@ class TestErrorHierarchy:
             SaynaConnectionError("test"),
             SaynaValidationError("test"),
             SaynaServerError("test"),
+            SaynaHttpError("test", status_code=404),
         ]
 
         for error in errors:
@@ -124,6 +205,7 @@ class TestErrorHierarchy:
             SaynaConnectionError("test"),
             SaynaValidationError("test"),
             SaynaServerError("test"),
+            SaynaHttpError("test", status_code=403),
         ]
 
         for error in errors_to_test:

@@ -19,6 +19,7 @@ from sayna_client.types import (
     RemoveLiveKitParticipantRequest,
     RemoveLiveKitParticipantResponse,
     SendMessageMessage,
+    SipHook,
     SipTransferErrorMessage,
     SipTransferMessage,
     SipTransferRequest,
@@ -758,3 +759,61 @@ class TestSipTransferTypes:
                 participant_identity="sip_participant_456",
                 transfer_to="tel:+15551234567",
             )
+
+
+class TestSipHookTypes:
+    """Tests for SipHook type including auth_id field."""
+
+    def test_sip_hook_with_auth_id(self) -> None:
+        """Test creating a SipHook with auth_id."""
+        hook = SipHook(
+            host="example.com",
+            url="https://webhook.example.com/events",
+            auth_id="tenant-123",
+        )
+        assert hook.host == "example.com"
+        assert hook.url == "https://webhook.example.com/events"
+        assert hook.auth_id == "tenant-123"
+
+    def test_sip_hook_with_empty_auth_id(self) -> None:
+        """Test SipHook accepts empty string for auth_id (when AUTH_REQUIRED=false)."""
+        hook = SipHook(
+            host="example.com",
+            url="https://webhook.example.com/events",
+            auth_id="",
+        )
+        assert hook.auth_id == ""
+
+    def test_sip_hook_requires_auth_id(self) -> None:
+        """Test that missing auth_id raises validation error."""
+        with pytest.raises(ValidationError):
+            SipHook(
+                host="example.com",
+                url="https://webhook.example.com/events",
+            )  # type: ignore[call-arg]
+
+    def test_sip_hook_from_dict(self) -> None:
+        """Test parsing SipHook from dict (as returned by API)."""
+        data = {
+            "host": "example.com",
+            "url": "https://webhook.example.com/events",
+            "auth_id": "tenant-456",
+        }
+        hook = SipHook(**data)
+        assert hook.host == "example.com"
+        assert hook.url == "https://webhook.example.com/events"
+        assert hook.auth_id == "tenant-456"
+
+    def test_sip_hook_model_dump_includes_auth_id(self) -> None:
+        """Test that model_dump() includes auth_id."""
+        hook = SipHook(
+            host="example.com",
+            url="https://webhook.example.com/events",
+            auth_id="tenant-789",
+        )
+        dump = hook.model_dump()
+        assert dump == {
+            "host": "example.com",
+            "url": "https://webhook.example.com/events",
+            "auth_id": "tenant-789",
+        }

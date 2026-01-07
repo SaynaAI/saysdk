@@ -4,6 +4,7 @@ from sayna_client.client import SaynaClient
 from sayna_client.errors import (
     SaynaConnectionError,
     SaynaError,
+    SaynaHttpError,
     SaynaNotConnectedError,
     SaynaNotReadyError,
     SaynaServerError,
@@ -85,6 +86,7 @@ __all__ = [
     "SaynaClient",
     "SaynaConnectionError",
     "SaynaError",
+    "SaynaHttpError",
     "SaynaMessage",
     "SaynaNotConnectedError",
     "SaynaNotReadyError",

@@ -59,12 +59,32 @@ export class SaynaValidationError extends SaynaError {
 }
 
 /**
- * Error thrown when the server returns an error.
+ * Error thrown when the server returns an error response.
+ *
+ * For REST API calls, the `status` and `endpoint` fields provide context about
+ * which request failed and with what HTTP status code. Common status codes:
+ * - 403: Access denied (e.g., room owned by another tenant on /livekit/token)
+ * - 404: Not found or not accessible (masked access denial for room-scoped operations)
+ * - 500: Internal server error
  */
 export class SaynaServerError extends SaynaError {
-  constructor(message: string) {
+  /**
+   * HTTP status code returned by the server, if available.
+   * Set for REST API errors; undefined for WebSocket errors.
+   */
+  public readonly status?: number;
+
+  /**
+   * API endpoint that returned the error, if available.
+   * Set for REST API errors; undefined for WebSocket errors.
+   */
+  public readonly endpoint?: string;
+
+  constructor(message: string, status?: number, endpoint?: string) {
     super(message);
     this.name = "SaynaServerError";
+    this.status = status;
+    this.endpoint = endpoint;
     Object.setPrototypeOf(this, SaynaServerError.prototype);
   }
 }

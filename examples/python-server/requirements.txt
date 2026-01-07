@@ -1,6 +1,0 @@
-# Runtime dependencies for Sayna FastAPI Example
-# Generated from pyproject.toml
-
-fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
-sayna-client>=0.0.1

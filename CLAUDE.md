@@ -11,7 +11,6 @@ Sayna SDK is a monorepo containing official SDKs for real-time voice streaming i
 - `js-sdk/` - Browser JavaScript SDK (uses LiveKit client directly)
 - `node-sdk/` - Node.js server SDK (WebSocket-based)
 - `python-sdk/` - Python async SDK (aiohttp + pydantic)
-- `examples/` - Example implementations
 
 ## SDK-Specific Rules
 

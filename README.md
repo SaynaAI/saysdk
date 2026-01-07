@@ -22,7 +22,7 @@ This monorepo contains three SDKs:
 - **[Node.js SDK](./node-sdk)** - Server-side SDK for Node.js applications
 - **[Python SDK](./python-sdk)** - Async Python SDK for server-side voice streaming
 
-Each SDK has its own README with detailed installation instructions, usage examples, and API documentation.
+Each SDK has its own README with detailed installation instructions and API documentation.
 
 ## Repository Structure
 
@@ -31,7 +31,6 @@ saysdk/
 ├── js-sdk/              # Browser JavaScript SDK
 ├── node-sdk/            # Node.js server SDK
 ├── python-sdk/          # Python server SDK
-├── examples/            # Example implementations
 ├── api-reference.md     # Complete API documentation
 └── README.md            # This file
 ```

@@ -31,6 +31,7 @@ import {
   SaynaValidationError,
   SaynaServerError,
 } from "./errors";
+import WebSocket from "ws";
 
 // Node.js 18+ has native fetch support
 declare const fetch: typeof globalThis.fetch;
@@ -203,17 +204,10 @@ export class SaynaClient {
           ? { Authorization: `Bearer ${this.apiKey}` }
           : undefined;
 
-        const WebSocketConstructor = WebSocket as unknown as {
-          new (
-            url: string,
-            protocols?: string | string[],
-            options?: { headers?: Record<string, string> }
-          ): WebSocket;
-        };
-
         this.websocket = headers
-          ? new WebSocketConstructor(wsUrl, undefined, { headers })
+          ? new WebSocket(wsUrl, undefined, { headers })
           : new WebSocket(wsUrl);
+        this.websocket.binaryType = "arraybuffer";
 
         this.websocket.onopen = () => {
           this.isConnected = true;
@@ -244,39 +238,8 @@ export class SaynaClient {
           }
         };
 
-        this.websocket.onmessage = async (event) => {
-          try {
-            if (
-              event.data instanceof Blob ||
-              event.data instanceof ArrayBuffer
-            ) {
-              // Binary TTS audio data
-              const buffer =
-                event.data instanceof Blob
-                  ? await event.data.arrayBuffer()
-                  : event.data;
-              if (this.ttsCallback) {
-                await this.ttsCallback(buffer);
-              }
-            } else {
-              // JSON control messages
-              if (typeof event.data !== "string") {
-                throw new Error("Expected string data for JSON messages");
-              }
-              const data = JSON.parse(event.data) as OutgoingMessage;
-              await this.handleJsonMessage(data);
-            }
-          } catch (error) {
-            // Log parse errors but don't break the connection
-            if (this.errorCallback) {
-              const errorMessage =
-                error instanceof Error ? error.message : String(error);
-              await this.errorCallback({
-                type: "error",
-                message: `Failed to process message: ${errorMessage}`,
-              });
-            }
-          }
+        this.websocket.onmessage = (event) => {
+          void this.handleWebSocketMessage(event);
         };
 
         this.websocket.onerror = () => {
@@ -292,9 +255,10 @@ export class SaynaClient {
 
           // If connection closed before ready, reject the promise
           if (!wasReady && this.readyPromiseReject) {
+            const reason = event.reason.length > 0 ? event.reason : "none";
             this.readyPromiseReject(
               new SaynaConnectionError(
-                `WebSocket closed before ready (code: ${event.code}, reason: ${event.reason || "none"})`
+                `WebSocket closed before ready (code: ${event.code}, reason: ${reason})`
               )
             );
           }
@@ -303,6 +267,44 @@ export class SaynaClient {
         reject(new SaynaConnectionError("Failed to create WebSocket", error));
       }
     });
+  }
+
+  /**
+   * Handles incoming WebSocket message events.
+   * @internal
+   */
+  private async handleWebSocketMessage(
+    event: WebSocket.MessageEvent
+  ): Promise<void> {
+    try {
+      if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
+        // Binary TTS audio data
+        const buffer =
+          event.data instanceof Blob
+            ? await event.data.arrayBuffer()
+            : event.data;
+        if (this.ttsCallback) {
+          await this.ttsCallback(buffer);
+        }
+      } else {
+        // JSON control messages
+        if (typeof event.data !== "string") {
+          throw new Error("Expected string data for JSON messages");
+        }
+        const data = JSON.parse(event.data) as OutgoingMessage;
+        await this.handleJsonMessage(data);
+      }
+    } catch (error) {
+      // Log parse errors but don't break the connection
+      if (this.errorCallback) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        await this.errorCallback({
+          type: "error",
+          message: `Failed to process message: ${errorMessage}`,
+        });
+      }
+    }
   }
 
   /**

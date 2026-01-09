@@ -30,6 +30,10 @@
     "prepublishOnly": "bun run typecheck && bun run lint && bun run build",
     "prepack": "bun run build"
   },
+  "dependencies": {
+    "@types/ws": "^8.18.1",
+    "ws": "^8.0.0"
+  },
   "keywords": [
     "sayna",
     "websocket",

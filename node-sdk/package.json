@@ -1,6 +1,6 @@
 {
   "name": "@sayna-ai/node-sdk",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "Node.js SDK for Sayna.ai server-side WebSocket connections",
   "type": "module",
   "main": "./dist/index.js",

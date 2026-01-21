@@ -5,3 +5,4 @@ run-todo.sh
 rust-ffi-migration-plan.md
 results/
 target/
+.mcgravity/

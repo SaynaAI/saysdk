@@ -513,6 +513,91 @@ class SipTransferResponse(BaseModel):
     )
 
 
+class SipCallSipConfig(BaseModel):
+    """Optional per-request SIP configuration overrides for outbound calls.
+
+    When provided, these values override the server's global SIP configuration.
+    All fields are optional and nullable - only include fields you want to override.
+    """
+
+    outbound_address: Optional[str] = Field(
+        default=None,
+        description="SIP server address override. Format: hostname or hostname:port",
+    )
+    auth_username: Optional[str] = Field(
+        default=None,
+        description="SIP authentication username override",
+    )
+    auth_password: Optional[str] = Field(
+        default=None,
+        description="SIP authentication password override",
+    )
+
+
+class SipCallRequest(BaseModel):
+    """Request body for POST /sip/call.
+
+    Initiates an outbound SIP call to a phone number and places it in a
+    LiveKit room. Room names are sent as-is; the SDK does not modify them.
+    Access scoping is enforced server-side based on room metadata.
+    """
+
+    room_name: str = Field(
+        ...,
+        description="LiveKit room name to place the call in",
+    )
+    participant_name: str = Field(
+        ...,
+        description="Display name for the SIP participant in the room",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="Unique identity for the SIP participant",
+    )
+    from_phone_number: str = Field(
+        ...,
+        description="Caller's phone number (E.164 format, e.g., '+15105550123')",
+    )
+    to_phone_number: str = Field(
+        ...,
+        description="Destination phone number (E.164 format, e.g., '+15551234567')",
+    )
+    sip: Optional[SipCallSipConfig] = Field(
+        default=None,
+        description="Optional per-request SIP configuration overrides",
+    )
+
+
+class SipCallResponse(BaseModel):
+    """Response from POST /sip/call.
+
+    Confirms the outbound SIP call has been initiated. The call is placed
+    asynchronously - a successful response indicates the request was accepted,
+    not that the call has connected.
+    """
+
+    status: Literal["initiated"] = Field(
+        ...,
+        description="Status of the call initiation (always 'initiated')",
+    )
+    room_name: str = Field(
+        ...,
+        description="Echo of the room name where the call was placed",
+    )
+    participant_identity: str = Field(
+        ...,
+        description="Echo of the participant identity",
+    )
+    participant_id: str = Field(
+        ...,
+        description="LiveKit participant ID for the SIP participant",
+    )
+    sip_call_id: str = Field(
+        ...,
+        description="SIP call ID for tracking the call",
+    )
+
+
 class LiveKitRoomSummary(BaseModel):
     """Summary information for a LiveKit room.
 

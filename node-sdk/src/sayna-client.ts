@@ -23,6 +23,9 @@ import type {
   RemoveLiveKitParticipantResponse,
   MuteLiveKitParticipantResponse,
   SipTransferResponse,
+  SipCallRequest,
+  SipCallResponse,
+  SipCallSipConfig,
 } from "./types";
 import {
   SaynaNotConnectedError,
@@ -1172,6 +1175,101 @@ export class SaynaClient {
         participant_identity: participantIdentity.trim(),
         transfer_to: transferTo.trim(),
       }),
+    });
+  }
+
+  /**
+   * Initiates an outbound SIP call via the REST API endpoint.
+   *
+   * Creates a new outbound SIP call to the specified phone number and places it
+   * in a LiveKit room. Optionally allows per-request SIP server configuration
+   * overrides to use different SIP providers or credentials.
+   *
+   * Room names are used as-is; the SDK does not rewrite or prefix them. Access is
+   * enforced server-side based on room ownership metadata.
+   *
+   * @param roomName - LiveKit room name to place the call in
+   * @param participantName - Display name for the SIP participant
+   * @param participantIdentity - Unique identity for the SIP participant
+   * @param fromPhoneNumber - Caller's phone number (E.164 format)
+   * @param toPhoneNumber - Destination phone number (E.164 format)
+   * @param sipConfig - Optional SIP configuration overrides
+   * @returns Promise that resolves with the call initiation status
+   * @throws {SaynaValidationError} If any required parameter is empty
+   * @throws {SaynaConnectionError} If the request fails
+   * @throws {SaynaServerError} If server returns an error
+   *
+   * @example
+   * ```typescript
+   * // Basic outbound call
+   * const result = await client.sipCall(
+   *   "call-room-123",
+   *   "John Doe",
+   *   "caller-456",
+   *   "+15105550123",
+   *   "+15551234567"
+   * );
+   * console.log(`Call initiated: ${result.sip_call_id}`);
+   *
+   * // With SIP configuration overrides
+   * const result = await client.sipCall(
+   *   "call-room-123",
+   *   "John Doe",
+   *   "caller-456",
+   *   "+15105550123",
+   *   "+15551234567",
+   *   {
+   *     outbound_address: "sip.provider.com:5060",
+   *     auth_username: "user123",
+   *     auth_password: "secret456"
+   *   }
+   * );
+   * ```
+   */
+  async sipCall(
+    roomName: string,
+    participantName: string,
+    participantIdentity: string,
+    fromPhoneNumber: string,
+    toPhoneNumber: string,
+    sipConfig?: SipCallSipConfig
+  ): Promise<SipCallResponse> {
+    if (!roomName || roomName.trim().length === 0) {
+      throw new SaynaValidationError("room_name cannot be empty");
+    }
+
+    if (!participantName || participantName.trim().length === 0) {
+      throw new SaynaValidationError("participant_name cannot be empty");
+    }
+
+    if (!participantIdentity || participantIdentity.trim().length === 0) {
+      throw new SaynaValidationError("participant_identity cannot be empty");
+    }
+
+    if (!fromPhoneNumber || fromPhoneNumber.trim().length === 0) {
+      throw new SaynaValidationError("from_phone_number cannot be empty");
+    }
+
+    if (!toPhoneNumber || toPhoneNumber.trim().length === 0) {
+      throw new SaynaValidationError("to_phone_number cannot be empty");
+    }
+
+    const body: SipCallRequest = {
+      room_name: roomName.trim(),
+      participant_name: participantName.trim(),
+      participant_identity: participantIdentity.trim(),
+      from_phone_number: fromPhoneNumber.trim(),
+      to_phone_number: toPhoneNumber.trim(),
+    };
+
+    // Only include sip config if provided
+    if (sipConfig) {
+      body.sip = sipConfig;
+    }
+
+    return this.fetchFromSayna<SipCallResponse>("sip/call", {
+      method: "POST",
+      body: JSON.stringify(body),
     });
   }
 

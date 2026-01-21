@@ -608,3 +608,52 @@ export interface SipTransferResponse {
   /** The normalized phone number with tel: prefix */
   transfer_to: string;
 }
+
+/**
+ * Optional per-request SIP configuration overrides for outbound calls.
+ * When provided, these values override the server's global SIP configuration.
+ */
+export interface SipCallSipConfig {
+  /** SIP server address override. Format: `hostname` or `hostname:port` */
+  outbound_address?: string | null;
+  /** SIP authentication username override */
+  auth_username?: string | null;
+  /** SIP authentication password override */
+  auth_password?: string | null;
+}
+
+/**
+ * Request body for the POST /sip/call endpoint.
+ * Used to initiate an outbound SIP call to a phone number.
+ */
+export interface SipCallRequest {
+  /** LiveKit room name to place the call in */
+  room_name: string;
+  /** Display name for the participant in the room */
+  participant_name: string;
+  /** Unique identity for the participant */
+  participant_identity: string;
+  /** Caller's phone number (E.164 format, e.g., "+15105550123") */
+  from_phone_number: string;
+  /** Destination phone number (E.164 format, e.g., "+15551234567") */
+  to_phone_number: string;
+  /** Optional per-request SIP configuration overrides */
+  sip?: SipCallSipConfig;
+}
+
+/**
+ * Response from the POST /sip/call endpoint.
+ * Confirms the outbound SIP call has been initiated.
+ */
+export interface SipCallResponse {
+  /** Status of the call initiation (always "initiated") */
+  status: "initiated";
+  /** Echo of the room name where the call was placed */
+  room_name: string;
+  /** Echo of the participant identity */
+  participant_identity: string;
+  /** LiveKit participant ID for the SIP participant */
+  participant_id: string;
+  /** SIP call ID for tracking */
+  sip_call_id: string;
+}

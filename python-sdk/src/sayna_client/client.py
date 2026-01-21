@@ -39,6 +39,9 @@ from sayna_client.types import (
     RemoveLiveKitParticipantResponse,
     SendMessageMessage,
     SetSipHooksRequest,
+    SipCallRequest,
+    SipCallResponse,
+    SipCallSipConfig,
     SipHook,
     SipHooksResponse,
     SipTransferErrorMessage,
@@ -657,6 +660,100 @@ class SaynaClient:
         )
         data = await self._http_client.post("/sip/transfer", json_data=request.model_dump())
         return SipTransferResponse(**data)
+
+    async def sip_call(
+        self,
+        room_name: str,
+        participant_name: str,
+        participant_identity: str,
+        from_phone_number: str,
+        to_phone_number: str,
+        sip_config: Optional[SipCallSipConfig] = None,
+    ) -> SipCallResponse:
+        """Initiate an outbound SIP call via REST API.
+
+        Creates a new outbound SIP call to the specified phone number and places
+        it in a LiveKit room. Optionally allows per-request SIP server configuration
+        overrides to use different SIP providers or credentials.
+
+        Room names are sent as-is; the SDK does not modify them. Access scoping
+        is enforced server-side based on room metadata.
+
+        Args:
+            room_name: LiveKit room name to place the call in
+            participant_name: Display name for the SIP participant in the room
+            participant_identity: Unique identity for the SIP participant
+            from_phone_number: Caller's phone number (E.164 format, e.g., '+15105550123')
+            to_phone_number: Destination phone number (E.164 format, e.g., '+15551234567')
+            sip_config: Optional SIP configuration overrides for this call
+
+        Returns:
+            SipCallResponse containing the call initiation status, room name,
+            participant identity, participant ID, and SIP call ID
+
+        Raises:
+            SaynaValidationError: If any required parameter is empty/whitespace
+            SaynaHttpError: If 404 - resource not found or not accessible
+            SaynaServerError: If the server returns an error
+
+        Example:
+            >>> # Basic outbound call
+            >>> response = await client.sip_call(
+            ...     "call-room-123",
+            ...     "John Doe",
+            ...     "caller-456",
+            ...     "+15105550123",
+            ...     "+15551234567",
+            ... )
+            >>> print(f"Call initiated: {response.sip_call_id}")
+
+            >>> # With SIP configuration overrides
+            >>> from sayna_client import SipCallSipConfig
+            >>> response = await client.sip_call(
+            ...     "call-room-123",
+            ...     "John Doe",
+            ...     "caller-456",
+            ...     "+15105550123",
+            ...     "+15551234567",
+            ...     sip_config=SipCallSipConfig(
+            ...         outbound_address="sip.provider.com:5060",
+            ...         auth_username="user123",
+            ...         auth_password="secret456",
+            ...     ),
+            ... )
+        """
+        if not room_name or not room_name.strip():
+            msg = "room_name must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not participant_name or not participant_name.strip():
+            msg = "participant_name must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not participant_identity or not participant_identity.strip():
+            msg = "participant_identity must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not from_phone_number or not from_phone_number.strip():
+            msg = "from_phone_number must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        if not to_phone_number or not to_phone_number.strip():
+            msg = "to_phone_number must be a non-empty string"
+            raise SaynaValidationError(msg)
+
+        request = SipCallRequest(
+            room_name=room_name,
+            participant_name=participant_name,
+            participant_identity=participant_identity,
+            from_phone_number=from_phone_number,
+            to_phone_number=to_phone_number,
+            sip=sip_config,
+        )
+        data = await self._http_client.post(
+            "/sip/call", json_data=request.model_dump(exclude_none=True)
+        )
+        return SipCallResponse(**data)
 
     async def get_recording(self, stream_id: str) -> tuple[bytes, dict[str, str]]:
         """Download the recorded audio file for a completed session.

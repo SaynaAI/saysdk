@@ -34,7 +34,22 @@ import {
   SaynaValidationError,
   SaynaServerError,
 } from "./errors";
-import WebSocket from "ws";
+// Runtime detection for WebSocket selection
+const isBun =
+  typeof process !== "undefined" &&
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  typeof process.versions?.bun === "string";
+const hasNativeWebSocket = typeof globalThis.WebSocket !== "undefined";
+
+// Use native WebSocket when available (Bun, Deno, Node 22+), fall back to ws
+let WS: typeof WebSocket;
+if (hasNativeWebSocket) {
+  WS = globalThis.WebSocket;
+} else {
+  // Node.js <22 — use the ws package synchronously via require()
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+  WS = require("ws") as typeof WebSocket;
+}
 
 // Node.js 18+ has native fetch support
 declare const fetch: typeof globalThis.fetch;
@@ -107,7 +122,7 @@ export class SaynaClient {
   private livekitConfig?: LiveKitConfig;
   private withoutAudio: boolean;
   private apiKey?: string;
-  private websocket?: WebSocket;
+  private websocket?: InstanceType<typeof WebSocket>;
   private isConnected: boolean = false;
   private isReady: boolean = false;
   private _livekitRoomName?: string;
@@ -203,13 +218,7 @@ export class SaynaClient {
       this.readyPromiseReject = reject;
 
       try {
-        const headers = this.apiKey
-          ? { Authorization: `Bearer ${this.apiKey}` }
-          : undefined;
-
-        this.websocket = headers
-          ? new WebSocket(wsUrl, undefined, { headers })
-          : new WebSocket(wsUrl);
+        this.websocket = this.createWebSocket(wsUrl);
         this.websocket.binaryType = "arraybuffer";
 
         this.websocket.onopen = () => {
@@ -277,7 +286,7 @@ export class SaynaClient {
    * @internal
    */
   private async handleWebSocketMessage(
-    event: WebSocket.MessageEvent
+    event: MessageEvent
   ): Promise<void> {
     try {
       if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
@@ -415,6 +424,36 @@ export class SaynaClient {
   }
 
   /**
+   * Creates a WebSocket instance using the appropriate constructor for the current runtime.
+   * - ws (Node.js <22): passes headers via third argument
+   * - Bun: passes headers in the second options argument
+   * - Deno / standard: appends token as query parameter (no custom header support)
+   * @internal
+   */
+  private createWebSocket(url: string): InstanceType<typeof WebSocket> {
+    if (!this.apiKey) {
+      return new WS(url);
+    }
+
+    const headers = { Authorization: `Bearer ${this.apiKey}` };
+
+    if (!hasNativeWebSocket) {
+      // ws package (Node.js <22): supports headers in third argument
+      return new (WS as unknown as new (url: string, protocols: undefined, opts: { headers: Record<string, string> }) => InstanceType<typeof WebSocket>)(url, undefined, { headers });
+    }
+
+    if (isBun) {
+      // Bun: supports headers as property in second argument
+      return new (WS as unknown as new (url: string, opts: { headers: Record<string, string> }) => InstanceType<typeof WebSocket>)(url, { headers });
+    }
+
+    // Deno / standard WebSocket: no custom header support — send token as query param
+    const separator = url.includes("?") ? "&" : "?";
+    const urlWithToken = `${url}${separator}token=${encodeURIComponent(this.apiKey)}`;
+    return new WS(urlWithToken);
+  }
+
+  /**
    * Cleans up internal state.
    * @internal
    */
@@ -542,7 +581,7 @@ export class SaynaClient {
       this.websocket.onerror = null;
       this.websocket.onclose = null;
 
-      if (this.websocket.readyState === WebSocket.OPEN) {
+      if (this.websocket.readyState === WS.OPEN) {
         this.websocket.close(1000, "Client disconnect");
       }
 

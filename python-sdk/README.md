@@ -400,6 +400,7 @@ Verifies and parses an incoming SIP webhook.
 - `to_phone_number`: Called phone number (E.164 format)
 - `room_prefix`: Room name prefix configured in Sayna
 - `sip_host`: SIP domain extracted from the To header
+- `sip_headers`: SIP headers from the incoming call (optional, `dict[str, str]` or `None`)
 
 **Raises**: `SaynaValidationError` if signature verification fails or payload is invalid.
 

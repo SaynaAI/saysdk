@@ -776,6 +776,10 @@ class WebhookSIPOutput(BaseModel):
     sip_host: str = Field(
         ..., description="SIP domain extracted from the To header (e.g., 'example.com')"
     )
+    sip_headers: Optional[dict[str, str]] = Field(
+        default=None,
+        description="SIP headers from the incoming call (key-value pairs, optional)",
+    )
 
 
 # ============================================================================

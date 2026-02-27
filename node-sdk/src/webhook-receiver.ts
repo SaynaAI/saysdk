@@ -365,6 +365,27 @@ export class WebhookReceiver {
     this.validateStringField(data, "room_prefix", "room_prefix");
     this.validateStringField(data, "sip_host", "sip_host");
 
+    // sip_headers is optional, but if present must be a plain object with string values
+    if (data.sip_headers !== undefined) {
+      if (
+        !data.sip_headers ||
+        typeof data.sip_headers !== "object" ||
+        Array.isArray(data.sip_headers)
+      ) {
+        throw new SaynaValidationError(
+          "Field 'sip_headers' must be a plain object if present"
+        );
+      }
+      const headers = data.sip_headers as Record<string, unknown>;
+      for (const [key, value] of Object.entries(headers)) {
+        if (typeof value !== "string") {
+          throw new SaynaValidationError(
+            `Field 'sip_headers.${key}' must be a string`
+          );
+        }
+      }
+    }
+
     // TypeScript type assertion is safe here because we've validated all fields
     // We use double assertion through unknown to satisfy strict type checking
     return data as unknown as WebhookSIPOutput;

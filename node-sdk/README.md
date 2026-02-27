@@ -428,6 +428,7 @@ The `receive` method returns a `WebhookSIPOutput` object with the following stru
 | `to_phone_number`      | `string`                | Called phone number (E.164 format).          |
 | `room_prefix`          | `string`                | Room name prefix configured in Sayna.        |
 | `sip_host`             | `string`                | SIP domain extracted from the To header.     |
+| `sip_headers`          | `Record<string, string>?` | SIP headers from the incoming call (optional). |
 
 ## Development
 

@@ -37,6 +37,7 @@ def _get_valid_webhook_payload() -> dict[str, Any]:
         "to_phone_number": "+15551234567",
         "room_prefix": "sip-",
         "sip_host": "example.com",
+        "sip_headers": {"X-Custom-Header": "value", "User-Agent": "SIPClient/1.0"},
     }
 
 
@@ -115,6 +116,33 @@ class TestWebhookReceiverReceive:
         assert webhook.participant.name == "John Doe"
         assert webhook.sip_host == "example.com"
         assert webhook.room_prefix == "sip-"
+        assert webhook.sip_headers == {"X-Custom-Header": "value", "User-Agent": "SIPClient/1.0"}
+
+    def test_receive_with_optional_sip_headers(self) -> None:
+        """Test receive works when sip_headers is missing (optional field)."""
+        secret = "test-secret-key-1234567890"
+        receiver = WebhookReceiver(secret)
+
+        payload = _get_valid_webhook_payload()
+        del payload["sip_headers"]
+        body = json.dumps(payload)
+        headers = _get_valid_headers(secret, body)
+
+        webhook = receiver.receive(headers, body)
+        assert webhook.sip_headers is None
+
+    def test_receive_with_empty_sip_headers(self) -> None:
+        """Test receive works when sip_headers is an empty object."""
+        secret = "test-secret-key-1234567890"
+        receiver = WebhookReceiver(secret)
+
+        payload = _get_valid_webhook_payload()
+        payload["sip_headers"] = {}
+        body = json.dumps(payload)
+        headers = _get_valid_headers(secret, body)
+
+        webhook = receiver.receive(headers, body)
+        assert webhook.sip_headers == {}
 
     def test_receive_with_case_insensitive_headers(self) -> None:
         """Test that header names are case-insensitive."""

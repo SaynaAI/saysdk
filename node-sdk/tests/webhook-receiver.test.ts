@@ -32,6 +32,7 @@ function getValidWebhookPayload(): WebhookSIPOutput {
     to_phone_number: "+15551234567",
     room_prefix: "sip-",
     sip_host: "example.com",
+    sip_headers: { "X-Custom-Header": "value", "User-Agent": "SIPClient/1.0" },
   };
 }
 
@@ -114,6 +115,60 @@ describe("WebhookReceiver.receive()", () => {
     expect(webhook.participant.name).toBe("John Doe");
     expect(webhook.sip_host).toBe("example.com");
     expect(webhook.room_prefix).toBe("sip-");
+    expect(webhook.sip_headers).toEqual({
+      "X-Custom-Header": "value",
+      "User-Agent": "SIPClient/1.0",
+    });
+  });
+
+  test("should work without optional sip_headers", () => {
+    const receiver = new WebhookReceiver(secret);
+
+    const payload = getValidWebhookPayload();
+    delete (payload as any).sip_headers;
+    const body = JSON.stringify(payload);
+    const headers = getValidHeaders(secret, body);
+
+    const webhook = receiver.receive(headers, body);
+    expect(webhook.sip_headers).toBeUndefined();
+  });
+
+  test("should work with empty sip_headers object", () => {
+    const receiver = new WebhookReceiver(secret);
+
+    const payload = getValidWebhookPayload();
+    payload.sip_headers = {};
+    const body = JSON.stringify(payload);
+    const headers = getValidHeaders(secret, body);
+
+    const webhook = receiver.receive(headers, body);
+    expect(webhook.sip_headers).toEqual({});
+  });
+
+  test("should fail with invalid sip_headers type", () => {
+    const receiver = new WebhookReceiver(secret);
+
+    const payload = getValidWebhookPayload();
+    (payload as any).sip_headers = "not-an-object";
+    const body = JSON.stringify(payload);
+    const headers = getValidHeaders(secret, body);
+
+    expect(() => {
+      receiver.receive(headers, body);
+    }).toThrow("Field 'sip_headers' must be a plain object if present");
+  });
+
+  test("should fail with array sip_headers", () => {
+    const receiver = new WebhookReceiver(secret);
+
+    const payload = getValidWebhookPayload();
+    (payload as any).sip_headers = ["not", "an", "object"];
+    const body = JSON.stringify(payload);
+    const headers = getValidHeaders(secret, body);
+
+    expect(() => {
+      receiver.receive(headers, body);
+    }).toThrow("Field 'sip_headers' must be a plain object if present");
   });
 
   test("should handle case-insensitive headers", () => {

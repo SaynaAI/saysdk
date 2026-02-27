@@ -366,6 +366,8 @@ export interface WebhookSIPOutput {
   room_prefix: string;
   /** SIP domain extracted from the To header (e.g., "example.com") */
   sip_host: string;
+  /** SIP headers from the incoming call (key-value pairs, optional) */
+  sip_headers?: Record<string, string>;
 }
 
 /**

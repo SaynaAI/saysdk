@@ -1,5 +1,5 @@
 [version]
-current = "0.0.13"
+current = "0.0.14"
 
 # Regex for parsing version
 regex = '''

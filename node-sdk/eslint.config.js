@@ -120,6 +120,7 @@ export default [
       "coverage/**",
       "*.config.js",
       "build.ts",
+      "ws-test.ts",
     ],
   },
 ];

@@ -39,14 +39,21 @@ const isBun =
   typeof process !== "undefined" &&
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   typeof process.versions?.bun === "string";
-const hasNativeWebSocket = typeof globalThis.WebSocket !== "undefined";
+const isNode =
+  typeof process !== "undefined" &&
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  typeof process.versions?.node === "string" &&
+  !isBun;
 
-// Use native WebSocket when available (Bun, Deno, Node 22+), fall back to ws
+// Node.js: always use ws package (native WebSocket via undici is unreliable).
+// Bun/Deno: use the built-in native WebSocket.
 let WS: typeof WebSocket;
-if (hasNativeWebSocket) {
+if (isNode) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+  WS = require("ws") as typeof WebSocket;
+} else if (typeof globalThis.WebSocket !== "undefined") {
   WS = globalThis.WebSocket;
 } else {
-  // Node.js <22 — use the ws package synchronously via require()
   // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
   WS = require("ws") as typeof WebSocket;
 }
@@ -267,7 +274,7 @@ export class SaynaClient {
 
           // If connection closed before ready, reject the promise
           if (!wasReady && this.readyPromiseReject) {
-            const reason = event.reason.length > 0 ? event.reason : "none";
+            const reason = event.reason && event.reason.length > 0 ? event.reason : "none";
             this.readyPromiseReject(
               new SaynaConnectionError(
                 `WebSocket closed before ready (code: ${event.code}, reason: ${reason})`
@@ -425,7 +432,7 @@ export class SaynaClient {
 
   /**
    * Creates a WebSocket instance using the appropriate constructor for the current runtime.
-   * - ws (Node.js <22): passes headers via third argument
+   * - Node.js (ws package): passes headers via third argument
    * - Bun: passes headers in the second options argument
    * - Deno / standard: appends token as query parameter (no custom header support)
    * @internal
@@ -437,13 +444,11 @@ export class SaynaClient {
 
     const headers = { Authorization: `Bearer ${this.apiKey}` };
 
-    if (!hasNativeWebSocket) {
-      // ws package (Node.js <22): supports headers in third argument
+    if (isNode) {
       return new (WS as unknown as new (url: string, protocols: undefined, opts: { headers: Record<string, string> }) => InstanceType<typeof WebSocket>)(url, undefined, { headers });
     }
 
     if (isBun) {
-      // Bun: supports headers as property in second argument
       return new (WS as unknown as new (url: string, opts: { headers: Record<string, string> }) => InstanceType<typeof WebSocket>)(url, { headers });
     }
 

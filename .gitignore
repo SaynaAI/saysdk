@@ -6,3 +6,4 @@ rust-ffi-migration-plan.md
 results/
 target/
 .mcgravity/
+ws-test.ts

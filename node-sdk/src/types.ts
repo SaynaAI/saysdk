@@ -256,6 +256,47 @@ export interface ParticipantDisconnectedMessage {
 }
 
 /**
+ * Message received when a participant connects.
+ */
+export interface ParticipantConnectedMessage {
+  type: "participant_connected";
+  /** The connected participant */
+  participant: Participant;
+}
+
+/**
+ * LiveKit track kinds emitted by websocket events.
+ */
+export type TrackKind = "audio" | "video";
+
+/**
+ * Information about a subscribed LiveKit track.
+ */
+export interface Track {
+  /** Identity of the participant who owns the track */
+  identity: string;
+  /** Optional display name */
+  name?: string;
+  /** Track media kind */
+  track_kind: TrackKind;
+  /** LiveKit track SID */
+  track_sid: string;
+  /** Room identifier */
+  room: string;
+  /** Unix timestamp in milliseconds */
+  timestamp: number;
+}
+
+/**
+ * Message received when Sayna subscribes to a participant track.
+ */
+export interface TrackSubscribedMessage {
+  type: "track_subscribed";
+  /** The subscribed track */
+  track: Track;
+}
+
+/**
  * Message received when the TTS playback is complete.
  */
 export interface TTSPlaybackCompleteMessage {
@@ -273,7 +314,9 @@ export type OutgoingMessage =
   | ErrorMessage
   | SipTransferErrorMessage
   | MessageMessage
+  | ParticipantConnectedMessage
   | ParticipantDisconnectedMessage
+  | TrackSubscribedMessage
   | TTSPlaybackCompleteMessage;
 
 /**

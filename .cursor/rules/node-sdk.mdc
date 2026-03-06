@@ -40,9 +40,13 @@ Register callbacks before or after connect:
 - `registerOnTtsAudio(callback)` - TTS audio data (ArrayBuffer)
 - `registerOnError(callback)` - Error messages
 - `registerOnMessage(callback)` - Participant messages
+- `registerOnParticipantConnected(callback)` - Participant connection
 - `registerOnParticipantDisconnected(callback)` - Participant disconnection
+- `registerOnTrackSubscribed(callback)` - LiveKit track subscription
 - `registerOnTtsPlaybackComplete(callback)` - TTS playback completion
 - `registerOnSipTransferError(callback)` - SIP transfer errors
+
+Unknown or malformed websocket control messages should be logged and ignored so the receive loop stays alive. Only actual server `error` messages belong on the error callback.
 
 ### REST API Methods (no WebSocket needed)
 - `health()` - Health check

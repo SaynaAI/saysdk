@@ -240,13 +240,23 @@ Registers a callback for error messages.
 
 Registers a callback for participant messages.
 
+### `client.registerOnParticipantConnected(callback)`
+
+Registers a callback for participant connection events.
+
 ### `client.registerOnParticipantDisconnected(callback)`
 
 Registers a callback for participant disconnection events.
 
+### `client.registerOnTrackSubscribed(callback)`
+
+Registers a callback for track subscription events.
+
 ### `client.registerOnTtsPlaybackComplete(callback)`
 
 Registers a callback for TTS playback completion events.
+
+Unknown or malformed websocket control messages are logged and ignored so protocol drift does not break the client receive loop. Actual server `error` messages still reach `client.registerOnError(callback)`.
 
 ### `await client.speak(text, flush?, allowInterruption?)`
 

@@ -70,8 +70,12 @@ asyncio.run(main())
 - `register_on_tts_audio(callback)` - TTS audio data (bytes)
 - `register_on_error(callback)` - Error messages
 - `register_on_message(callback)` - Participant messages
+- `register_on_participant_connected(callback)` - Participant connection
 - `register_on_participant_disconnected(callback)` - Participant disconnection
+- `register_on_track_subscribed(callback)` - LiveKit track subscription
 - `register_on_tts_playback_complete(callback)` - TTS completion
+
+Unknown or malformed websocket control messages should be logged and ignored so the receive loop stays alive. Only actual server `error` messages belong on the error callback.
 
 ### REST API Methods (no WebSocket needed)
 - `health()` - Health check
@@ -84,7 +88,7 @@ asyncio.run(main())
 - `speak(text, flush=True, allow_interruption=True)`
 - `clear()` - Clear TTS queue
 - `on_audio_input(audio_data)` - Send audio bytes for STT
-- `send_message(message, role, topic="messages", debug=None)`
+- `send_message(message, role, topic=None, debug=None)`
 - `tts_flush(allow_interruption=True)`
 
 ### Client Properties

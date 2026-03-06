@@ -13,6 +13,7 @@ import type {
   OutgoingMessage,
   SaynaMessage,
   Participant,
+  Track,
   VoicesResponse,
   HealthResponse,
   LiveKitTokenResponse,
@@ -61,6 +62,8 @@ if (isNode) {
 // Node.js 18+ has native fetch support
 declare const fetch: typeof globalThis.fetch;
 
+type JsonObject = Record<string, unknown>;
+
 /**
  * Event handler for speech-to-text results.
  */
@@ -89,6 +92,18 @@ export type MessageHandler = (message: SaynaMessage) => void | Promise<void>;
 export type ParticipantDisconnectedHandler = (
   participant: Participant
 ) => void | Promise<void>;
+
+/**
+ * Event handler for participant connection events.
+ */
+export type ParticipantConnectedHandler = (
+  participant: Participant
+) => void | Promise<void>;
+
+/**
+ * Event handler for track subscription events.
+ */
+export type TrackSubscribedHandler = (track: Track) => void | Promise<void>;
 
 /**
  * Event handler for TTS playback completion.
@@ -142,7 +157,9 @@ export class SaynaClient {
   private ttsCallback?: TTSAudioHandler;
   private errorCallback?: ErrorHandler;
   private messageCallback?: MessageHandler;
+  private participantConnectedCallback?: ParticipantConnectedHandler;
   private participantDisconnectedCallback?: ParticipantDisconnectedHandler;
+  private trackSubscribedCallback?: TrackSubscribedHandler;
   private ttsPlaybackCompleteCallback?: TTSPlaybackCompleteHandler;
   private sipTransferErrorCallback?: SipTransferErrorHandler;
   private readyPromiseResolve?: () => void;
@@ -215,10 +232,7 @@ export class SaynaClient {
       return;
     }
 
-    // Convert HTTP(S) URL to WebSocket URL
-    const wsUrl =
-      this.url.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://") +
-      (this.url.endsWith("/") ? "ws" : "/ws");
+    const wsUrl = this.getWebSocketUrl();
 
     return new Promise((resolve, reject) => {
       this.readyPromiseResolve = resolve;
@@ -297,32 +311,35 @@ export class SaynaClient {
   ): Promise<void> {
     try {
       if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
-        // Binary TTS audio data
         const buffer =
           event.data instanceof Blob
             ? await event.data.arrayBuffer()
             : event.data;
-        if (this.ttsCallback) {
-          await this.ttsCallback(buffer);
-        }
+        await this.invokeCallback(this.ttsCallback, buffer, "TTS audio");
       } else {
-        // JSON control messages
         if (typeof event.data !== "string") {
-          throw new Error("Expected string data for JSON messages");
+          this.logProtocolWarning(
+            "Ignoring websocket message with unsupported non-binary payload type",
+            event.data
+          );
+          return;
         }
-        const data = JSON.parse(event.data) as OutgoingMessage;
+
+        let data: unknown;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          this.logProtocolWarning(
+            `Ignoring invalid websocket JSON: ${this.describeError(error)}`,
+            event.data
+          );
+          return;
+        }
+
         await this.handleJsonMessage(data);
       }
     } catch (error) {
-      // Log parse errors but don't break the connection
-      if (this.errorCallback) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        await this.errorCallback({
-          type: "error",
-          message: `Failed to process message: ${errorMessage}`,
-        });
-      }
+      await this.reportHandlerError("WebSocket message", error);
     }
   }
 
@@ -330,7 +347,12 @@ export class SaynaClient {
    * Handles incoming JSON messages from the WebSocket.
    * @internal
    */
-  private async handleJsonMessage(data: OutgoingMessage): Promise<void> {
+  private async handleJsonMessage(raw: unknown): Promise<void> {
+    const data = this.parseIncomingMessage(raw);
+    if (!data) {
+      return;
+    }
+
     const messageType = data.type;
 
     try {
@@ -350,83 +372,349 @@ export class SaynaClient {
         }
 
         case "stt_result": {
-          const sttResult = data;
-          if (this.sttCallback) {
-            await this.sttCallback(sttResult);
-          }
+          await this.invokeCallback(this.sttCallback, data, "STT result");
           break;
         }
 
         case "error": {
-          const errorMsg = data;
-          if (this.errorCallback) {
-            await this.errorCallback(errorMsg);
-          }
+          await this.invokeCallback(this.errorCallback, data, "error");
           if (this.readyPromiseReject && !this.isReady) {
-            this.readyPromiseReject(new SaynaServerError(errorMsg.message));
+            this.readyPromiseReject(new SaynaServerError(data.message));
           }
           break;
         }
 
         case "sip_transfer_error": {
-          const sipTransferError = data;
           if (this.sipTransferErrorCallback) {
-            await this.sipTransferErrorCallback(sipTransferError);
+            await this.invokeCallback(
+              this.sipTransferErrorCallback,
+              data,
+              "SIP transfer error"
+            );
           } else if (this.errorCallback) {
             await this.errorCallback({
               type: "error",
-              message: sipTransferError.message,
+              message: data.message,
             });
           }
           break;
         }
 
         case "message": {
-          const messageData = data;
-          if (this.messageCallback) {
-            await this.messageCallback(messageData.message);
-          }
+          await this.invokeCallback(
+            this.messageCallback,
+            data.message,
+            "message"
+          );
+          break;
+        }
+
+        case "participant_connected": {
+          await this.invokeCallback(
+            this.participantConnectedCallback,
+            data.participant,
+            "participant connected"
+          );
           break;
         }
 
         case "participant_disconnected": {
-          const participantMsg = data;
-          if (this.participantDisconnectedCallback) {
-            await this.participantDisconnectedCallback(
-              participantMsg.participant
-            );
-          }
+          await this.invokeCallback(
+            this.participantDisconnectedCallback,
+            data.participant,
+            "participant disconnected"
+          );
+          break;
+        }
+
+        case "track_subscribed": {
+          await this.invokeCallback(
+            this.trackSubscribedCallback,
+            data.track,
+            "track subscribed"
+          );
           break;
         }
 
         case "tts_playback_complete": {
-          const ttsPlaybackCompleteMsg = data;
-          if (this.ttsPlaybackCompleteCallback) {
-            await this.ttsPlaybackCompleteCallback(
-              ttsPlaybackCompleteMsg.timestamp
-            );
-          }
+          await this.invokeCallback(
+            this.ttsPlaybackCompleteCallback,
+            data.timestamp,
+            "TTS playback complete"
+          );
           break;
-        }
-
-        default: {
-          const unknownMessage = data as { type: string };
-          const errorMessage = `Unknown message type received: ${unknownMessage.type}`;
-          if (this.errorCallback) {
-            await this.errorCallback({ type: "error", message: errorMessage });
-          } else {
-            console.warn(errorMessage);
-          }
         }
       }
     } catch (error) {
-      // Notify error callback if handler fails
-      if (this.errorCallback) {
-        await this.errorCallback({
-          type: "error",
-          message: `Handler error: ${error instanceof Error ? error.message : String(error)}`,
-        });
+      await this.reportHandlerError(`"${messageType}"`, error);
+    }
+  }
+
+  private getWebSocketUrl(): string {
+    const wsUrl = this.url
+      .replace(/^https:\/\//, "wss://")
+      .replace(/^http:\/\//, "ws://");
+    const parsedUrl = new URL(wsUrl);
+
+    if (!parsedUrl.pathname.endsWith("/ws")) {
+      parsedUrl.pathname = parsedUrl.pathname.endsWith("/")
+        ? `${parsedUrl.pathname}ws`
+        : `${parsedUrl.pathname}/ws`;
+    }
+
+    return parsedUrl.toString();
+  }
+
+  private parseIncomingMessage(raw: unknown): OutgoingMessage | undefined {
+    if (!this.isJsonObject(raw)) {
+      this.logProtocolWarning(
+        "Ignoring websocket payload because it is not a JSON object",
+        raw
+      );
+      return undefined;
+    }
+
+    const messageType = raw.type;
+    if (typeof messageType !== "string") {
+      this.logProtocolWarning(
+        'Ignoring websocket payload without a string "type" field',
+        raw
+      );
+      return undefined;
+    }
+
+    try {
+      switch (messageType) {
+        case "ready":
+          return {
+            type: "ready",
+            stream_id: this.getOptionalString(raw, "stream_id"),
+            livekit_room_name: this.getOptionalString(raw, "livekit_room_name"),
+            livekit_url: this.getOptionalString(raw, "livekit_url"),
+            sayna_participant_identity: this.getOptionalString(
+              raw,
+              "sayna_participant_identity"
+            ),
+            sayna_participant_name: this.getOptionalString(
+              raw,
+              "sayna_participant_name"
+            ),
+          };
+        case "stt_result":
+          return {
+            type: "stt_result",
+            transcript: this.getRequiredString(raw, "transcript"),
+            is_final: this.getRequiredBoolean(raw, "is_final"),
+            is_speech_final: this.getRequiredBoolean(raw, "is_speech_final"),
+            confidence: this.getRequiredNumber(raw, "confidence"),
+          };
+        case "error":
+          return {
+            type: "error",
+            message: this.getRequiredString(raw, "message"),
+          };
+        case "sip_transfer_error":
+          return {
+            type: "sip_transfer_error",
+            message: this.getRequiredString(raw, "message"),
+          };
+        case "message":
+          return {
+            type: "message",
+            message: this.parseSaynaMessage(raw, "message"),
+          };
+        case "participant_connected":
+          return {
+            type: "participant_connected",
+            participant: this.parseParticipant(raw, "participant"),
+          };
+        case "participant_disconnected":
+          return {
+            type: "participant_disconnected",
+            participant: this.parseParticipant(raw, "participant"),
+          };
+        case "track_subscribed":
+          return {
+            type: "track_subscribed",
+            track: this.parseTrack(raw, "track"),
+          };
+        case "tts_playback_complete":
+          return {
+            type: "tts_playback_complete",
+            timestamp: this.getRequiredNumber(raw, "timestamp"),
+          };
+        default:
+          this.logProtocolWarning(
+            `Ignoring unknown websocket message type "${messageType}"`,
+            raw
+          );
+          return undefined;
       }
+    } catch (error) {
+      this.logProtocolWarning(
+        `Ignoring malformed websocket message "${messageType}": ${this.describeError(error)}`,
+        raw
+      );
+      return undefined;
+    }
+  }
+
+  private parseSaynaMessage(
+    container: JsonObject,
+    fieldName: string
+  ): SaynaMessage {
+    const message = this.getRequiredObject(container, fieldName);
+    return {
+      message: this.getOptionalString(message, "message"),
+      data: this.getOptionalString(message, "data"),
+      identity: this.getRequiredString(message, "identity"),
+      topic: this.getRequiredString(message, "topic"),
+      room: this.getRequiredString(message, "room"),
+      timestamp: this.getRequiredNumber(message, "timestamp"),
+    };
+  }
+
+  private parseParticipant(
+    container: JsonObject,
+    fieldName: string
+  ): Participant {
+    const participant = this.getRequiredObject(container, fieldName);
+    return {
+      identity: this.getRequiredString(participant, "identity"),
+      name: this.getOptionalString(participant, "name"),
+      room: this.getRequiredString(participant, "room"),
+      timestamp: this.getRequiredNumber(participant, "timestamp"),
+    };
+  }
+
+  private parseTrack(container: JsonObject, fieldName: string): Track {
+    const track = this.getRequiredObject(container, fieldName);
+    const trackKind = this.getRequiredString(track, "track_kind");
+    if (trackKind !== "audio" && trackKind !== "video") {
+      throw new Error(
+        'Field "track_kind" must be either "audio" or "video"'
+      );
+    }
+
+    return {
+      identity: this.getRequiredString(track, "identity"),
+      name: this.getOptionalString(track, "name"),
+      track_kind: trackKind,
+      track_sid: this.getRequiredString(track, "track_sid"),
+      room: this.getRequiredString(track, "room"),
+      timestamp: this.getRequiredNumber(track, "timestamp"),
+    };
+  }
+
+  private getRequiredObject(
+    container: JsonObject,
+    fieldName: string
+  ): JsonObject {
+    const value = container[fieldName];
+    if (!this.isJsonObject(value)) {
+      throw new Error(`Field "${fieldName}" must be an object`);
+    }
+    return value;
+  }
+
+  private getRequiredString(container: JsonObject, fieldName: string): string {
+    const value = container[fieldName];
+    if (typeof value !== "string") {
+      throw new Error(`Field "${fieldName}" must be a string`);
+    }
+    return value;
+  }
+
+  private getOptionalString(
+    container: JsonObject,
+    fieldName: string
+  ): string | undefined {
+    const value = container[fieldName];
+    if (typeof value === "undefined" || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw new Error(`Field "${fieldName}" must be a string when present`);
+    }
+    return value;
+  }
+
+  private getRequiredBoolean(
+    container: JsonObject,
+    fieldName: string
+  ): boolean {
+    const value = container[fieldName];
+    if (typeof value !== "boolean") {
+      throw new Error(`Field "${fieldName}" must be a boolean`);
+    }
+    return value;
+  }
+
+  private getRequiredNumber(container: JsonObject, fieldName: string): number {
+    const value = container[fieldName];
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new Error(`Field "${fieldName}" must be a finite number`);
+    }
+    return value;
+  }
+
+  private isJsonObject(value: unknown): value is JsonObject {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  private logProtocolWarning(message: string, payload: unknown): void {
+    console.warn(`${message}; payload=${this.safeStringify(payload)}`);
+  }
+
+  private safeStringify(payload: unknown): string {
+    try {
+      return JSON.stringify(payload);
+    } catch {
+      return String(payload);
+    }
+  }
+
+  private describeError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private async invokeCallback<T>(
+    callback: ((payload: T) => void | Promise<void>) | undefined,
+    payload: T,
+    label: string
+  ): Promise<void> {
+    if (!callback) {
+      return;
+    }
+
+    try {
+      await callback(payload);
+    } catch (error) {
+      await this.reportHandlerError(`${label} callback`, error);
+    }
+  }
+
+  private async reportHandlerError(
+    label: string,
+    error: unknown
+  ): Promise<void> {
+    const message = `${label} failed: ${this.describeError(error)}`;
+
+    if (!this.errorCallback) {
+      console.error(message);
+      return;
+    }
+
+    try {
+      await this.errorCallback({
+        type: "error",
+        message,
+      });
+    } catch (callbackError) {
+      console.error(message);
+      console.error(
+        `error callback failed: ${this.describeError(callbackError)}`
+      );
     }
   }
 
@@ -664,6 +952,17 @@ export class SaynaClient {
   }
 
   /**
+   * Registers a callback for participant connection events.
+   *
+   * @param callback - Function to call when a participant connects
+   */
+  registerOnParticipantConnected(
+    callback: ParticipantConnectedHandler
+  ): void {
+    this.participantConnectedCallback = callback;
+  }
+
+  /**
    * Registers a callback for participant disconnection events.
    *
    * @param callback - Function to call when a participant disconnects
@@ -672,6 +971,15 @@ export class SaynaClient {
     callback: ParticipantDisconnectedHandler
   ): void {
     this.participantDisconnectedCallback = callback;
+  }
+
+  /**
+   * Registers a callback for track subscription events.
+   *
+   * @param callback - Function to call when Sayna subscribes to a track
+   */
+  registerOnTrackSubscribed(callback: TrackSubscribedHandler): void {
+    this.trackSubscribedCallback = callback;
   }
 
   /**

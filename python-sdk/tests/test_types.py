@@ -14,6 +14,7 @@ from sayna_client.types import (
     LiveKitRoomSummary,
     MuteLiveKitParticipantRequest,
     MuteLiveKitParticipantResponse,
+    ParticipantConnectedMessage,
     Pronunciation,
     ReadyMessage,
     RemoveLiveKitParticipantRequest,
@@ -27,6 +28,7 @@ from sayna_client.types import (
     SpeakMessage,
     STTConfig,
     STTResultMessage,
+    TrackSubscribedMessage,
     TTSConfig,
 )
 
@@ -245,6 +247,36 @@ class TestMessages:
         msg = SipTransferErrorMessage(message="No SIP participant found")
         assert msg.type == "sip_transfer_error"
         assert msg.message == "No SIP participant found"
+
+    def test_participant_connected_message(self) -> None:
+        """Test parsing a participant connected message."""
+        msg = ParticipantConnectedMessage(
+            participant={
+                "identity": "user-123",
+                "name": "Jane Doe",
+                "room": "conversation-room-123",
+                "timestamp": 1700000000000,
+            }
+        )
+        assert msg.type == "participant_connected"
+        assert msg.participant.identity == "user-123"
+        assert msg.participant.room == "conversation-room-123"
+
+    def test_track_subscribed_message(self) -> None:
+        """Test parsing a track subscribed message."""
+        msg = TrackSubscribedMessage(
+            track={
+                "identity": "user-456",
+                "name": "Jane Smith",
+                "track_kind": "audio",
+                "track_sid": "TR_abc123",
+                "room": "conversation-room-123",
+                "timestamp": 1700000000000,
+            }
+        )
+        assert msg.type == "track_subscribed"
+        assert msg.track.track_kind == "audio"
+        assert msg.track.track_sid == "TR_abc123"
 
 
 class TestLiveKitRoomsTypes:

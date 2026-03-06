@@ -248,6 +248,34 @@ class ParticipantDisconnectedMessage(BaseModel):
     participant: Participant = Field(..., description="The disconnected participant")
 
 
+class ParticipantConnectedMessage(BaseModel):
+    """Message received when a participant connects."""
+
+    type: Literal["participant_connected"] = "participant_connected"
+    participant: Participant = Field(..., description="The connected participant")
+
+
+TrackKind = Literal["audio", "video"]
+
+
+class Track(BaseModel):
+    """Information about a subscribed LiveKit track."""
+
+    identity: str = Field(..., description="Identity of the participant who owns the track")
+    name: Optional[str] = Field(default=None, description="Optional display name")
+    track_kind: TrackKind = Field(..., description="Track media kind")
+    track_sid: str = Field(..., description="LiveKit track SID")
+    room: str = Field(..., description="Room identifier")
+    timestamp: int = Field(..., description="Unix timestamp in milliseconds")
+
+
+class TrackSubscribedMessage(BaseModel):
+    """Message received when Sayna subscribes to a participant track."""
+
+    type: Literal["track_subscribed"] = "track_subscribed"
+    track: Track = Field(..., description="The subscribed track")
+
+
 class TTSPlaybackCompleteMessage(BaseModel):
     """Message received when the TTS playback is complete."""
 
@@ -792,6 +820,8 @@ OutgoingMessage = Union[
     ErrorMessage,
     SipTransferErrorMessage,
     MessageMessage,
+    ParticipantConnectedMessage,
     ParticipantDisconnectedMessage,
+    TrackSubscribedMessage,
     TTSPlaybackCompleteMessage,
 ]

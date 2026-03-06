@@ -10,9 +10,11 @@ import type {
   ReadyMessage,
   STTResultMessage,
   ErrorMessage,
+  ParticipantConnectedMessage,
   Pronunciation,
   SipTransferMessage,
   SipTransferErrorMessage,
+  TrackSubscribedMessage,
   LiveKitRoomSummary,
   LiveKitRoomsResponse,
   LiveKitParticipantState,
@@ -235,6 +237,40 @@ describe("Message Types", () => {
 
     expect(msg.type).toBe("error");
     expect(msg.message).toBe("Something went wrong");
+  });
+
+  test("ParticipantConnectedMessage should have correct structure", () => {
+    const msg: ParticipantConnectedMessage = {
+      type: "participant_connected",
+      participant: {
+        identity: "user-123",
+        name: "Jane Doe",
+        room: "conversation-room-123",
+        timestamp: 1700000000000,
+      },
+    };
+
+    expect(msg.type).toBe("participant_connected");
+    expect(msg.participant.identity).toBe("user-123");
+    expect(msg.participant.room).toBe("conversation-room-123");
+  });
+
+  test("TrackSubscribedMessage should have correct structure", () => {
+    const msg: TrackSubscribedMessage = {
+      type: "track_subscribed",
+      track: {
+        identity: "user-456",
+        name: "Jane Smith",
+        track_kind: "audio",
+        track_sid: "TR_abc123",
+        room: "conversation-room-123",
+        timestamp: 1700000000000,
+      },
+    };
+
+    expect(msg.type).toBe("track_subscribed");
+    expect(msg.track.track_kind).toBe("audio");
+    expect(msg.track.track_sid).toBe("TR_abc123");
   });
 
   test("SipTransferMessage should have correct structure", () => {

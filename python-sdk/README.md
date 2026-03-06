@@ -225,7 +225,7 @@ Creates a new SaynaClient instance.
 
 #### `await client.connect()`
 
-Establishes WebSocket connection and sends initial configuration. Resolves when server sends ready message.
+Establishes the WebSocket connection and sends the initial configuration. `connect()` does not wait for the `ready` event; check `client.ready` or register `client.register_on_ready(callback)` if you need to gate work on readiness.
 
 ---
 
@@ -269,15 +269,29 @@ Registers a callback for participant messages.
 
 ---
 
+#### `client.register_on_participant_connected(callback)`
+
+Registers a callback for participant connection events.
+
+---
+
 #### `client.register_on_participant_disconnected(callback)`
 
 Registers a callback for participant disconnection events.
 
 ---
 
+#### `client.register_on_track_subscribed(callback)`
+
+Registers a callback for track subscription events.
+
+---
+
 #### `client.register_on_tts_playback_complete(callback)`
 
 Registers a callback for TTS playback completion events.
+
+Unknown or malformed websocket control messages are logged and ignored so protocol drift does not break the receive loop. Actual server `error` messages still reach `client.register_on_error(callback)`.
 
 ---
 
@@ -310,7 +324,7 @@ await client.on_audio_input(audio_bytes)
 
 ---
 
-#### `await client.send_message(message, role, topic="messages", debug=None)`
+#### `await client.send_message(message, role, topic=None, debug=None)`
 
 Sends a message to the Sayna session with role and optional metadata.
 
@@ -318,7 +332,7 @@ Sends a message to the Sayna session with role and optional metadata.
 | --- | --- | --- | --- |
 | `message` | `str` | - | Message content. |
 | `role` | `str` | - | Sender role (e.g., 'user', 'assistant'). |
-| `topic` | `str` | `"messages"` | LiveKit topic/channel. |
+| `topic` | `str` (optional) | `None` | LiveKit topic/channel. Omitted when not provided. |
 | `debug` | `dict` (optional) | `None` | Optional debug metadata. |
 
 ---

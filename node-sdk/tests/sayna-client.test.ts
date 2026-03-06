@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
 import { SaynaClient } from "../src/sayna-client";
 import {
   SaynaValidationError,
@@ -314,6 +314,21 @@ describe("SaynaClient Event Handlers", () => {
     expect(client).toBeDefined();
   });
 
+  test("should register participant connected handler", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const handler = (participant: any) => {
+      console.log(participant);
+    };
+
+    client.registerOnParticipantConnected(handler);
+    expect(client).toBeDefined();
+  });
+
   test("should register participant disconnected handler", () => {
     const client = new SaynaClient(
       "https://api.example.com",
@@ -326,6 +341,21 @@ describe("SaynaClient Event Handlers", () => {
     };
 
     client.registerOnParticipantDisconnected(handler);
+    expect(client).toBeDefined();
+  });
+
+  test("should register track subscribed handler", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const handler = (track: any) => {
+      console.log(track);
+    };
+
+    client.registerOnTrackSubscribed(handler);
     expect(client).toBeDefined();
   });
 
@@ -744,6 +774,58 @@ describe("SaynaClient SIP Transfer", () => {
 });
 
 describe("SaynaClient message handling", () => {
+  test("should handle participant_connected with dedicated callback", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    let receivedIdentity: string | undefined;
+    client.registerOnParticipantConnected((participant) => {
+      receivedIdentity = participant.identity;
+    });
+
+    await (client as any).handleJsonMessage({
+      type: "participant_connected",
+      participant: {
+        identity: "user-123",
+        name: "Jane Doe",
+        room: "conversation-room-123",
+        timestamp: 1700000000000,
+      },
+    });
+
+    expect(receivedIdentity).toBe("user-123");
+  });
+
+  test("should handle track_subscribed with dedicated callback", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    let receivedTrackId: string | undefined;
+    client.registerOnTrackSubscribed((track) => {
+      receivedTrackId = track.track_sid;
+    });
+
+    await (client as any).handleJsonMessage({
+      type: "track_subscribed",
+      track: {
+        identity: "user-456",
+        name: "Jane Smith",
+        track_kind: "audio",
+        track_sid: "TR_abc123",
+        room: "conversation-room-123",
+        timestamp: 1700000000000,
+      },
+    });
+
+    expect(receivedTrackId).toBe("TR_abc123");
+  });
+
   test("should handle sip_transfer_error with dedicated callback", async () => {
     const client = new SaynaClient(
       "https://api.example.com",
@@ -782,21 +864,139 @@ describe("SaynaClient message handling", () => {
     expect(client.streamId).toBe("stream-123");
   });
 
-  test("should surface unknown message types via error callback", async () => {
+  test("should ignore unknown message types and log a warning", async () => {
     const client = new SaynaClient(
       "https://api.example.com",
       getTestSTTConfig(),
       getTestTTSConfig()
     );
 
-    let errorMessage: string | undefined;
-    client.registerOnError((error) => {
-      errorMessage = error.message;
-    });
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
     await (client as any).handleJsonMessage({ type: "unknown" } as any);
 
-    expect(errorMessage).toContain("Unknown message type");
+    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy.mock.calls[0]?.[0]).toContain(
+      'Ignoring unknown websocket message type "unknown"'
+    );
+    warnSpy.mockRestore();
+  });
+
+  test("should ignore malformed ready messages without marking ready", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+    await (client as any).handleJsonMessage({
+      type: "ready",
+      livekit_url: 123,
+    });
+
+    expect(client.ready).toBe(false);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test("should ignore malformed participant_connected messages", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    let receivedIdentity: string | undefined;
+    client.registerOnParticipantConnected((participant) => {
+      receivedIdentity = participant.identity;
+    });
+
+    await (client as any).handleJsonMessage({
+      type: "participant_connected",
+      participant: {
+        identity: 123,
+        room: "conversation-room-123",
+        timestamp: 1700000000000,
+      },
+    });
+
+    expect(receivedIdentity).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test("should ignore malformed track_subscribed messages", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    let receivedTrackId: string | undefined;
+    client.registerOnTrackSubscribed((track) => {
+      receivedTrackId = track.track_sid;
+    });
+
+    await (client as any).handleJsonMessage({
+      type: "track_subscribed",
+      track: {
+        identity: "user-456",
+        track_kind: "unknown",
+        track_sid: "TR_abc123",
+        room: "conversation-room-123",
+        timestamp: 1700000000000,
+      },
+    });
+
+    expect(receivedTrackId).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
+describe("SaynaClient websocket URL normalization", () => {
+  test("should append /ws for https urls without a websocket path", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect((client as any).getWebSocketUrl()).toBe("wss://api.example.com/ws");
+  });
+
+  test("should append /ws for https urls ending with slash", () => {
+    const client = new SaynaClient(
+      "https://api.example.com/",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect((client as any).getWebSocketUrl()).toBe("wss://api.example.com/ws");
+  });
+
+  test("should preserve explicit secure websocket urls", () => {
+    const client = new SaynaClient(
+      "wss://api.example.com/ws",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect((client as any).getWebSocketUrl()).toBe("wss://api.example.com/ws");
+  });
+
+  test("should preserve explicit insecure websocket urls", () => {
+    const client = new SaynaClient(
+      "ws://localhost:3000/ws",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect((client as any).getWebSocketUrl()).toBe("ws://localhost:3000/ws");
   });
 });
 describe("SaynaClient SIP Hooks Methods", () => {

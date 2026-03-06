@@ -82,7 +82,9 @@ User-facing documentation site (Mintlify). Located in a separate docs repository
 - `stt_result` - Transcription result
 - `tts_playback_complete` - TTS finished
 - `message` - Participant message
+- `participant_connected` - Participant joined
 - `participant_disconnected` - Participant left
+- `track_subscribed` - Sayna subscribed to a participant track
 - `error` - Error message
 - `sip_transfer_error` - SIP transfer failed
 - Binary frames - TTS audio

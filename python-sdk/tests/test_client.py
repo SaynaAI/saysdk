@@ -1,14 +1,17 @@
 """Tests for SaynaClient class."""
 
+import logging
 from typing import Any
 
 import pytest
 
 from sayna_client import (
+    ParticipantConnectedMessage,
     SaynaClient,
     SaynaValidationError,
     SipTransferErrorMessage,
     STTConfig,
+    TrackSubscribedMessage,
     TTSConfig,
 )
 
@@ -206,6 +209,123 @@ class TestSipTransfer:
 
         assert len(received) == 1
         assert received[0].message == "No SIP participant found"
+
+    @pytest.mark.asyncio
+    async def test_participant_connected_callback(self) -> None:
+        """participant_connected messages should trigger the specific callback."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        received: list[ParticipantConnectedMessage] = []
+
+        async def on_connected(message: ParticipantConnectedMessage) -> None:
+            received.append(message)
+
+        client.register_on_participant_connected(on_connected)
+
+        await client._handle_text_message(
+            '{"type": "participant_connected", "participant": {"identity": "user-123", '
+            '"name": "Jane Doe", "room": "conversation-room-123", '
+            '"timestamp": 1700000000000}}'
+        )
+
+        assert len(received) == 1
+        assert received[0].participant.identity == "user-123"
+
+    @pytest.mark.asyncio
+    async def test_track_subscribed_callback(self) -> None:
+        """track_subscribed messages should trigger the specific callback."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        received: list[TrackSubscribedMessage] = []
+
+        async def on_track_subscribed(message: TrackSubscribedMessage) -> None:
+            received.append(message)
+
+        client.register_on_track_subscribed(on_track_subscribed)
+
+        await client._handle_text_message(
+            '{"type": "track_subscribed", "track": {"identity": "user-456", '
+            '"name": "Jane Smith", "track_kind": "audio", "track_sid": "TR_abc123", '
+            '"room": "conversation-room-123", "timestamp": 1700000000000}}'
+        )
+
+        assert len(received) == 1
+        assert received[0].track.track_sid == "TR_abc123"
+
+    @pytest.mark.asyncio
+    async def test_unknown_message_type_is_logged_and_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Unknown websocket messages should be logged and ignored."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            await client._handle_text_message('{"type": "unknown"}')
+
+        assert "Unknown message type: unknown" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_malformed_known_message_is_logged_and_ignored(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Malformed known websocket messages should be logged and ignored."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+
+        received: list[ParticipantConnectedMessage] = []
+        client.register_on_participant_connected(received.append)
+
+        with caplog.at_level(logging.WARNING):
+            await client._handle_text_message(
+                '{"type": "participant_connected", "participant": {"identity": 123, '
+                '"room": "conversation-room-123", "timestamp": 1700000000000}}'
+            )
+
+        assert not received
+        assert "Ignoring malformed websocket message type participant_connected" in caplog.text
+
+
+class TestSendMessage:
+    """Tests for send_message websocket behavior."""
+
+    @pytest.mark.asyncio
+    async def test_send_message_omits_default_topic(self) -> None:
+        """send_message should omit topic when the caller does not provide one."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        client._connected = True
+        client._ready = True
+
+        sent: dict[str, Any] = {}
+
+        async def fake_send_json(data: dict[str, Any]) -> None:
+            sent.update(data)
+
+        client._send_json = fake_send_json  # type: ignore[assignment]
+
+        await client.send_message("Hello from AI", "assistant")
+
+        assert sent == {
+            "type": "send_message",
+            "message": "Hello from AI",
+            "role": "assistant",
+        }
 
 
 class TestGetLiveKitRoom:

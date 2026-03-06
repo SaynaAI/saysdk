@@ -33,6 +33,7 @@ from sayna_client.types import (
     MessageMessage,
     MuteLiveKitParticipantRequest,
     MuteLiveKitParticipantResponse,
+    ParticipantConnectedMessage,
     ParticipantDisconnectedMessage,
     ReadyMessage,
     RemoveLiveKitParticipantRequest,
@@ -52,6 +53,7 @@ from sayna_client.types import (
     SpeakRequest,
     STTConfig,
     STTResultMessage,
+    TrackSubscribedMessage,
     TTSConfig,
     TTSPlaybackCompleteMessage,
     VoiceDescriptor,
@@ -177,9 +179,11 @@ class SaynaClient:
         self._on_message: Optional[Callable[[MessageMessage], Any]] = None
         self._on_error: Optional[Callable[[ErrorMessage], Any]] = None
         self._on_sip_transfer_error: Optional[Callable[[SipTransferErrorMessage], Any]] = None
+        self._on_participant_connected: Optional[Callable[[ParticipantConnectedMessage], Any]] = None
         self._on_participant_disconnected: Optional[
             Callable[[ParticipantDisconnectedMessage], Any]
         ] = None
+        self._on_track_subscribed: Optional[Callable[[TrackSubscribedMessage], Any]] = None
         self._on_tts_playback_complete: Optional[Callable[[TTSPlaybackCompleteMessage], Any]] = None
         self._on_audio: Optional[Callable[[bytes], Any]] = None
 
@@ -790,13 +794,15 @@ class SaynaClient:
     async def connect(self) -> None:
         """Establishes connection to the Sayna WebSocket server.
 
-        Sends initial configuration and waits for the ready message.
+        Sends the initial configuration and starts the receive loop.
+        Callers are responsible for observing the ready state via ``client.ready``
+        or ``register_on_ready()`` before issuing ready-dependent websocket operations.
 
         Raises:
             SaynaConnectionError: If connection fails
 
         Returns:
-            Promise that resolves when the connection is ready
+            None
         """
         if self._connected:
             logger.warning("Already connected to Sayna WebSocket")
@@ -986,7 +992,7 @@ class SaynaClient:
         self,
         message: str,
         role: str,
-        topic: str = "messages",
+        topic: Optional[str] = None,
         debug: Optional[dict[str, Any]] = None,
     ) -> None:
         """Send a data message to the LiveKit room.
@@ -994,7 +1000,7 @@ class SaynaClient:
         Args:
             message: Message content
             role: Sender role (e.g., 'user', 'assistant')
-            topic: LiveKit topic/channel (default: 'messages')
+            topic: Optional LiveKit topic/channel. Omitted when not provided.
             debug: Optional debug metadata
 
         Raises:
@@ -1089,11 +1095,23 @@ class SaynaClient:
         """Register callback for SIP transfer error events."""
         self._on_sip_transfer_error = callback
 
+    def register_on_participant_connected(
+        self, callback: Callable[[ParticipantConnectedMessage], Any]
+    ) -> None:
+        """Register callback for participant connected events."""
+        self._on_participant_connected = callback
+
     def register_on_participant_disconnected(
         self, callback: Callable[[ParticipantDisconnectedMessage], Any]
     ) -> None:
         """Register callback for participant disconnected events."""
         self._on_participant_disconnected = callback
+
+    def register_on_track_subscribed(
+        self, callback: Callable[[TrackSubscribedMessage], Any]
+    ) -> None:
+        """Register callback for track subscribed events."""
+        self._on_track_subscribed = callback
 
     def register_on_tts_playback_complete(
         self, callback: Callable[[TTSPlaybackCompleteMessage], Any]
@@ -1182,10 +1200,19 @@ class SaynaClient:
         """Handle incoming text (JSON) message."""
         try:
             parsed = json.loads(data)
-            msg_type = parsed.get("type")
+        except json.JSONDecodeError as e:
+            logger.warning("Ignoring invalid websocket JSON: %s; payload=%s", e, data)
+            return
 
-            logger.debug("Received: %s", parsed)
+        if not isinstance(parsed, dict):
+            logger.warning("Ignoring websocket payload because it is not a JSON object: %r", parsed)
+            return
 
+        msg_type = parsed.get("type")
+
+        logger.debug("Received: %s", parsed)
+
+        try:
             if msg_type == "ready":
                 await self._handle_ready(ReadyMessage(**parsed))
             elif msg_type == "stt_result":
@@ -1196,17 +1223,26 @@ class SaynaClient:
                 await self._handle_error(ErrorMessage(**parsed))
             elif msg_type == "sip_transfer_error":
                 await self._handle_sip_transfer_error(SipTransferErrorMessage(**parsed))
+            elif msg_type == "participant_connected":
+                await self._handle_participant_connected(ParticipantConnectedMessage(**parsed))
             elif msg_type == "participant_disconnected":
                 await self._handle_participant_disconnected(
                     ParticipantDisconnectedMessage(**parsed)
                 )
+            elif msg_type == "track_subscribed":
+                await self._handle_track_subscribed(TrackSubscribedMessage(**parsed))
             elif msg_type == "tts_playback_complete":
                 await self._handle_tts_playback_complete(TTSPlaybackCompleteMessage(**parsed))
             else:
                 logger.warning("Unknown message type: %s; payload=%s", msg_type, parsed)
 
         except ValidationError as e:
-            logger.exception("Failed to parse message: %s", e)
+            logger.warning(
+                "Ignoring malformed websocket message type %s: %s; payload=%s",
+                msg_type,
+                e,
+                parsed,
+            )
         except Exception as e:
             logger.exception("Error handling message: %s", e)
 
@@ -1285,6 +1321,19 @@ class SaynaClient:
             except Exception as e:
                 logger.exception("Error in SIP transfer error callback: %s", e)
 
+    async def _handle_participant_connected(
+        self, message: ParticipantConnectedMessage
+    ) -> None:
+        """Handle participant connected message."""
+        logger.info("Participant connected: %s", message.participant.identity)
+        if self._on_participant_connected:
+            try:
+                result = self._on_participant_connected(message)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                logger.exception("Error in participant connected callback: %s", e)
+
     async def _handle_participant_disconnected(
         self, message: ParticipantDisconnectedMessage
     ) -> None:
@@ -1297,6 +1346,21 @@ class SaynaClient:
                     await result
             except Exception as e:
                 logger.exception("Error in participant disconnected callback: %s", e)
+
+    async def _handle_track_subscribed(self, message: TrackSubscribedMessage) -> None:
+        """Handle track subscribed message."""
+        logger.info(
+            "Track subscribed: %s (%s)",
+            message.track.track_sid,
+            message.track.identity,
+        )
+        if self._on_track_subscribed:
+            try:
+                result = self._on_track_subscribed(message)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                logger.exception("Error in track subscribed callback: %s", e)
 
     async def _handle_tts_playback_complete(self, message: TTSPlaybackCompleteMessage) -> None:
         """Handle TTS playback complete message."""

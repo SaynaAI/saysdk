@@ -28,6 +28,10 @@ import type {
   SipTransferStatus,
   SipTransferRequest,
   SipTransferResponse,
+  ApiKeyAuth,
+  GoogleAuth,
+  AzureAuth,
+  ProviderAuth,
 } from "../src/types";
 
 describe("Type Validation", () => {
@@ -607,5 +611,160 @@ describe("Message Types", () => {
     };
 
     expect(response.transfer_to.startsWith("tel:")).toBe(true);
+  });
+});
+
+describe("Provider Auth Types", () => {
+  test("STTConfig with ApiKeyAuth (Deepgram)", () => {
+    const auth: ApiKeyAuth = { api_key: "dg-test-key" };
+    const config: STTConfig = {
+      provider: "deepgram",
+      language: "en-US",
+      sample_rate: 16000,
+      channels: 1,
+      punctuation: true,
+      encoding: "linear16",
+      model: "nova-3",
+      auth,
+    };
+
+    expect(config.auth).toEqual({ api_key: "dg-test-key" });
+  });
+
+  test("TTSConfig with ApiKeyAuth (ElevenLabs)", () => {
+    const auth: ApiKeyAuth = { api_key: "el-test-key" };
+    const config: TTSConfig = {
+      provider: "elevenlabs",
+      model: "eleven_flash_v2_5",
+      voice_id: "voice-123",
+      auth,
+    };
+
+    expect(config.auth).toEqual({ api_key: "el-test-key" });
+  });
+
+  test("TTSConfig with ApiKeyAuth (Cartesia)", () => {
+    const auth: ApiKeyAuth = { api_key: "cartesia-test-key" };
+    const config: TTSConfig = {
+      provider: "cartesia",
+      model: "sonic-2",
+      auth,
+    };
+
+    expect(config.auth).toEqual({ api_key: "cartesia-test-key" });
+  });
+
+  test("TTSConfig with GoogleAuth (string credentials)", () => {
+    const auth: GoogleAuth = { credentials: "/path/to/service-account.json" };
+    const config: TTSConfig = {
+      provider: "google",
+      model: "en-US-Wavenet-D",
+      auth,
+    };
+
+    expect(config.auth).toEqual({ credentials: "/path/to/service-account.json" });
+  });
+
+  test("TTSConfig with GoogleAuth (object credentials)", () => {
+    const auth: GoogleAuth = {
+      credentials: {
+        type: "service_account",
+        project_id: "my-project",
+        private_key_id: "key-id",
+        private_key: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+        client_email: "sa@my-project.iam.gserviceaccount.com",
+        client_id: "123456789",
+      },
+    };
+    const config: TTSConfig = {
+      provider: "google",
+      model: "en-US-Wavenet-D",
+      auth,
+    };
+
+    expect((config.auth as GoogleAuth).credentials).toHaveProperty("project_id", "my-project");
+  });
+
+  test("STTConfig with AzureAuth", () => {
+    const auth: AzureAuth = { api_key: "azure-key", region: "eastus" };
+    const config: STTConfig = {
+      provider: "azure",
+      language: "en-US",
+      sample_rate: 16000,
+      channels: 1,
+      punctuation: true,
+      encoding: "linear16",
+      model: "whisper",
+      auth,
+    };
+
+    expect(config.auth).toEqual({ api_key: "azure-key", region: "eastus" });
+  });
+
+  test("ConfigMessage with auth in both stt_config and tts_config", () => {
+    const msg: ConfigMessage = {
+      type: "config",
+      audio: true,
+      stt_config: {
+        provider: "deepgram",
+        language: "en-US",
+        sample_rate: 16000,
+        channels: 1,
+        punctuation: true,
+        encoding: "linear16",
+        model: "nova-3",
+        auth: { api_key: "dg-session-key" },
+      },
+      tts_config: {
+        provider: "elevenlabs",
+        model: "eleven_flash_v2_5",
+        voice_id: "voice-123",
+        auth: { api_key: "el-session-key" },
+      },
+    };
+
+    expect(msg.stt_config?.auth).toEqual({ api_key: "dg-session-key" });
+    expect(msg.tts_config?.auth).toEqual({ api_key: "el-session-key" });
+  });
+
+  test("ProviderAuth union accepts all auth shapes", () => {
+    const apiKey: ProviderAuth = { api_key: "key" };
+    const google: ProviderAuth = { credentials: "/path.json" };
+    const azure: ProviderAuth = { api_key: "key", region: "westus" };
+
+    expect(apiKey).toBeDefined();
+    expect(google).toBeDefined();
+    expect(azure).toBeDefined();
+  });
+
+  test("auth field serializes correctly in JSON", () => {
+    const config: STTConfig = {
+      provider: "deepgram",
+      language: "en-US",
+      sample_rate: 16000,
+      channels: 1,
+      punctuation: true,
+      encoding: "linear16",
+      model: "nova-3",
+      auth: { api_key: "test-key" },
+    };
+
+    const json = JSON.parse(JSON.stringify(config));
+    expect(json.auth).toEqual({ api_key: "test-key" });
+  });
+
+  test("auth field omitted from JSON when undefined", () => {
+    const config: STTConfig = {
+      provider: "deepgram",
+      language: "en-US",
+      sample_rate: 16000,
+      channels: 1,
+      punctuation: true,
+      encoding: "linear16",
+      model: "nova-3",
+    };
+
+    const json = JSON.parse(JSON.stringify(config));
+    expect(json.auth).toBeUndefined();
   });
 });

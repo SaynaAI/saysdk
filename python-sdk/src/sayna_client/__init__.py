@@ -11,10 +11,13 @@ from sayna_client.errors import (
     SaynaValidationError,
 )
 from sayna_client.types import (
+    ApiKeyAuth,
+    AzureAuth,
     ClearMessage,
     ConfigMessage,
     DeleteSipHooksRequest,
     ErrorMessage,
+    GoogleAuth,
     HealthResponse,
     LiveKitConfig,
     LiveKitParticipantInfo,
@@ -31,6 +34,7 @@ from sayna_client.types import (
     ParticipantConnectedMessage,
     ParticipantDisconnectedMessage,
     Pronunciation,
+    ProviderAuth,
     ReadyMessage,
     RemoveLiveKitParticipantRequest,
     RemoveLiveKitParticipantResponse,
@@ -65,10 +69,13 @@ from sayna_client.webhook_receiver import WebhookReceiver
 __version__ = "0.0.15"
 
 __all__ = [
+    "ApiKeyAuth",
+    "AzureAuth",
     "ClearMessage",
     "ConfigMessage",
     "DeleteSipHooksRequest",
     "ErrorMessage",
+    "GoogleAuth",
     "HealthResponse",
     "LiveKitConfig",
     "LiveKitParticipantInfo",
@@ -85,6 +92,7 @@ __all__ = [
     "ParticipantConnectedMessage",
     "ParticipantDisconnectedMessage",
     "Pronunciation",
+    "ProviderAuth",
     "ReadyMessage",
     "RemoveLiveKitParticipantRequest",
     "RemoveLiveKitParticipantResponse",

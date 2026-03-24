@@ -16,6 +16,15 @@ export interface STTConfig {
   encoding: string;
   /** STT model identifier to use */
   model: string;
+  /**
+   * Optional provider auth override for this session.
+   *
+   * Shape depends on the selected provider:
+   * - Deepgram: `{ api_key: "..." }`
+   * - Google: `{ credentials: "..." }` or `{ credentials: { ...service account... } }`
+   * - Azure: `{ api_key: "...", region: "..." }`
+   */
+  auth?: ProviderAuth;
 }
 
 /**
@@ -27,6 +36,51 @@ export interface Pronunciation {
   /** Phonetic pronunciation or alternative spelling */
   pronunciation: string;
 }
+
+/**
+ * Provider auth override using an API key.
+ *
+ * Used by Deepgram, ElevenLabs, and Cartesia providers.
+ */
+export interface ApiKeyAuth {
+  /** Provider API key */
+  api_key: string;
+}
+
+/**
+ * Google Cloud provider auth override.
+ *
+ * The `credentials` field accepts either a file path string
+ * or an inline service account JSON object.
+ */
+export interface GoogleAuth {
+  /** Path to a service account JSON file, or an inline service account JSON object */
+  credentials: string | Record<string, unknown>;
+}
+
+/**
+ * Azure Speech provider auth override.
+ *
+ * Both `api_key` and `region` are required when providing Azure auth.
+ */
+export interface AzureAuth {
+  /** Azure Speech API key */
+  api_key: string;
+  /** Azure region (e.g., "eastus") */
+  region: string;
+}
+
+/**
+ * Union of all supported provider auth override shapes.
+ *
+ * The correct shape depends on the `provider` field of the parent config:
+ * - Deepgram, ElevenLabs, Cartesia: {@link ApiKeyAuth}
+ * - Google: {@link GoogleAuth}
+ * - Azure: {@link AzureAuth}
+ *
+ * When omitted, the server uses its preconfigured provider credentials.
+ */
+export type ProviderAuth = ApiKeyAuth | GoogleAuth | AzureAuth;
 
 /**
  * Text-to-Speech (TTS) configuration options.
@@ -71,6 +125,15 @@ export interface TTSConfig {
    * Optional so minimal payloads from the spec are accepted; defaults to an empty list when absent.
    */
   pronunciations?: Pronunciation[];
+  /**
+   * Optional provider auth override for this session or request.
+   *
+   * Shape depends on the selected provider:
+   * - Deepgram, ElevenLabs, Cartesia: `{ api_key: "..." }`
+   * - Google: `{ credentials: "..." }` or `{ credentials: { ...service account... } }`
+   * - Azure: `{ api_key: "...", region: "..." }`
+   */
+  auth?: ProviderAuth;
 }
 
 /**

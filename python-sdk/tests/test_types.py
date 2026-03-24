@@ -4,9 +4,12 @@ import pytest
 from pydantic import ValidationError
 
 from sayna_client.types import (
+    ApiKeyAuth,
+    AzureAuth,
     ClearMessage,
     ConfigMessage,
     ErrorMessage,
+    GoogleAuth,
     LiveKitConfig,
     LiveKitParticipantInfo,
     LiveKitRoomDetails,
@@ -26,6 +29,7 @@ from sayna_client.types import (
     SipTransferRequest,
     SipTransferResponse,
     SpeakMessage,
+    SpeakRequest,
     STTConfig,
     STTResultMessage,
     TrackSubscribedMessage,
@@ -849,3 +853,219 @@ class TestSipHookTypes:
             "url": "https://webhook.example.com/events",
             "auth_id": "tenant-789",
         }
+
+
+class TestProviderAuth:
+    """Tests for provider auth override types."""
+
+    def test_api_key_auth(self) -> None:
+        """Test creating an ApiKeyAuth."""
+        auth = ApiKeyAuth(api_key="dg-test-key")
+        assert auth.api_key == "dg-test-key"
+
+    def test_api_key_auth_rejects_extra_fields(self) -> None:
+        """Test that ApiKeyAuth rejects unexpected fields."""
+        with pytest.raises(ValidationError):
+            ApiKeyAuth(api_key="key", region="eastus")  # type: ignore[call-arg]
+
+    def test_google_auth_string_credentials(self) -> None:
+        """Test GoogleAuth with a file path string."""
+        auth = GoogleAuth(credentials="/path/to/service-account.json")
+        assert auth.credentials == "/path/to/service-account.json"
+
+    def test_google_auth_dict_credentials(self) -> None:
+        """Test GoogleAuth with an inline service account JSON object."""
+        creds = {
+            "type": "service_account",
+            "project_id": "my-project",
+            "private_key_id": "key-id",
+            "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+            "client_email": "sa@my-project.iam.gserviceaccount.com",
+            "client_id": "123456789",
+        }
+        auth = GoogleAuth(credentials=creds)
+        assert isinstance(auth.credentials, dict)
+        assert auth.credentials["project_id"] == "my-project"
+
+    def test_google_auth_rejects_extra_fields(self) -> None:
+        """Test that GoogleAuth rejects unexpected fields."""
+        with pytest.raises(ValidationError):
+            GoogleAuth(credentials="/path.json", api_key="extra")  # type: ignore[call-arg]
+
+    def test_azure_auth(self) -> None:
+        """Test creating an AzureAuth with both required fields."""
+        auth = AzureAuth(api_key="azure-key", region="eastus")
+        assert auth.api_key == "azure-key"
+        assert auth.region == "eastus"
+
+    def test_azure_auth_missing_region(self) -> None:
+        """Test that AzureAuth requires region."""
+        with pytest.raises(ValidationError):
+            AzureAuth(api_key="azure-key")  # type: ignore[call-arg]
+
+    def test_azure_auth_missing_api_key(self) -> None:
+        """Test that AzureAuth requires api_key."""
+        with pytest.raises(ValidationError):
+            AzureAuth(region="eastus")  # type: ignore[call-arg]
+
+    def test_stt_config_with_api_key_auth(self) -> None:
+        """Test STTConfig accepts an ApiKeyAuth."""
+        config = STTConfig(
+            provider="deepgram",
+            language="en-US",
+            sample_rate=16000,
+            channels=1,
+            punctuation=True,
+            encoding="linear16",
+            model="nova-3",
+            auth=ApiKeyAuth(api_key="dg-session-key"),
+        )
+        assert isinstance(config.auth, ApiKeyAuth)
+        assert config.auth.api_key == "dg-session-key"
+
+    def test_stt_config_with_azure_auth(self) -> None:
+        """Test STTConfig accepts an AzureAuth."""
+        config = STTConfig(
+            provider="azure",
+            language="en-US",
+            sample_rate=16000,
+            channels=1,
+            punctuation=True,
+            encoding="linear16",
+            model="whisper",
+            auth=AzureAuth(api_key="azure-key", region="eastus"),
+        )
+        assert isinstance(config.auth, AzureAuth)
+        assert config.auth.region == "eastus"
+
+    def test_stt_config_without_auth(self) -> None:
+        """Test STTConfig backward compatibility — auth defaults to None."""
+        config = STTConfig(
+            provider="deepgram",
+            language="en-US",
+            sample_rate=16000,
+            channels=1,
+            punctuation=True,
+            encoding="linear16",
+            model="nova-2",
+        )
+        assert config.auth is None
+
+    def test_tts_config_with_api_key_auth(self) -> None:
+        """Test TTSConfig accepts an ApiKeyAuth."""
+        config = TTSConfig(
+            provider="elevenlabs",
+            model="eleven_flash_v2_5",
+            voice_id="voice-123",
+            auth=ApiKeyAuth(api_key="el-session-key"),
+        )
+        assert isinstance(config.auth, ApiKeyAuth)
+        assert config.auth.api_key == "el-session-key"
+
+    def test_tts_config_with_google_auth(self) -> None:
+        """Test TTSConfig accepts a GoogleAuth."""
+        config = TTSConfig(
+            provider="google",
+            model="en-US-Wavenet-D",
+            auth=GoogleAuth(credentials="/path/to/creds.json"),
+        )
+        assert isinstance(config.auth, GoogleAuth)
+        assert config.auth.credentials == "/path/to/creds.json"
+
+    def test_tts_config_without_auth(self) -> None:
+        """Test TTSConfig backward compatibility — auth defaults to None."""
+        config = TTSConfig(provider="deepgram", model="aura-asteria-en")
+        assert config.auth is None
+
+    def test_config_message_with_auth_serialization(self) -> None:
+        """Test that ConfigMessage serializes auth correctly."""
+        stt = STTConfig(
+            provider="deepgram",
+            language="en-US",
+            sample_rate=16000,
+            channels=1,
+            punctuation=True,
+            encoding="linear16",
+            model="nova-3",
+            auth=ApiKeyAuth(api_key="dg-key"),
+        )
+        tts = TTSConfig(
+            provider="elevenlabs",
+            model="eleven_flash_v2_5",
+            auth=ApiKeyAuth(api_key="el-key"),
+        )
+        msg = ConfigMessage(audio=True, stt_config=stt, tts_config=tts)
+        dump = msg.model_dump(exclude_none=True)
+
+        assert dump["stt_config"]["auth"] == {"api_key": "dg-key"}
+        assert dump["tts_config"]["auth"] == {"api_key": "el-key"}
+
+    def test_config_message_without_auth_omits_field(self) -> None:
+        """Test that auth is excluded when None and exclude_none=True."""
+        stt = STTConfig(
+            provider="deepgram",
+            language="en-US",
+            sample_rate=16000,
+            channels=1,
+            punctuation=True,
+            encoding="linear16",
+            model="nova-2",
+        )
+        tts = TTSConfig(provider="deepgram", model="aura-asteria-en")
+        msg = ConfigMessage(audio=True, stt_config=stt, tts_config=tts)
+        dump = msg.model_dump(exclude_none=True)
+
+        assert "auth" not in dump["stt_config"]
+        assert "auth" not in dump["tts_config"]
+
+    def test_speak_request_with_auth(self) -> None:
+        """Test SpeakRequest with auth in tts_config."""
+        tts = TTSConfig(
+            provider="azure",
+            model="en-US-AvaMultilingualNeural",
+            voice_id="en-US-AvaMultilingualNeural",
+            auth=AzureAuth(api_key="azure-key", region="eastus"),
+        )
+        request = SpeakRequest(text="Hello from Sayna", tts_config=tts)
+        dump = request.model_dump(exclude_none=True)
+
+        assert dump["tts_config"]["auth"] == {"api_key": "azure-key", "region": "eastus"}
+
+    def test_stt_config_from_dict_with_azure_auth(self) -> None:
+        """Test parsing STTConfig from dict with Azure auth."""
+        data = {
+            "provider": "azure",
+            "language": "en-US",
+            "sample_rate": 16000,
+            "channels": 1,
+            "punctuation": True,
+            "encoding": "linear16",
+            "model": "whisper",
+            "auth": {"api_key": "azure-key", "region": "eastus"},
+        }
+        config = STTConfig(**data)
+        assert isinstance(config.auth, AzureAuth)
+        assert config.auth.api_key == "azure-key"
+        assert config.auth.region == "eastus"
+
+    def test_tts_config_from_dict_with_api_key_auth(self) -> None:
+        """Test parsing TTSConfig from dict with API key auth."""
+        data = {
+            "provider": "elevenlabs",
+            "model": "eleven_flash_v2_5",
+            "auth": {"api_key": "el-key"},
+        }
+        config = TTSConfig(**data)
+        assert isinstance(config.auth, ApiKeyAuth)
+        assert config.auth.api_key == "el-key"
+
+    def test_tts_config_from_dict_with_google_auth(self) -> None:
+        """Test parsing TTSConfig from dict with Google auth."""
+        data = {
+            "provider": "google",
+            "model": "en-US-Wavenet-D",
+            "auth": {"credentials": "/path/to/creds.json"},
+        }
+        config = TTSConfig(**data)
+        assert isinstance(config.auth, GoogleAuth)
+        assert config.auth.credentials == "/path/to/creds.json"

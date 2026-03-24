@@ -2,7 +2,7 @@
 
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class Pronunciation(BaseModel):
@@ -10,6 +10,57 @@ class Pronunciation(BaseModel):
 
     word: str = Field(..., description="The word to be pronounced differently")
     pronunciation: str = Field(..., description="Phonetic pronunciation or alternative spelling")
+
+
+class ApiKeyAuth(BaseModel):
+    """Provider auth override using an API key.
+
+    Used by Deepgram, ElevenLabs, and Cartesia providers.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: str = Field(..., description="Provider API key")
+
+
+class GoogleAuth(BaseModel):
+    """Google Cloud provider auth override.
+
+    The ``credentials`` field accepts either a file path string
+    or an inline service account JSON object.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    credentials: Union[str, dict[str, Any]] = Field(
+        ...,
+        description="Path to a service account JSON file, or an inline service account JSON object",
+    )
+
+
+class AzureAuth(BaseModel):
+    """Azure Speech provider auth override.
+
+    Both ``api_key`` and ``region`` are required when providing Azure auth.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: str = Field(..., description="Azure Speech API key")
+    region: str = Field(..., description="Azure region (e.g., 'eastus')")
+
+
+ProviderAuth = Union[AzureAuth, GoogleAuth, ApiKeyAuth]
+"""Union of all supported provider auth override shapes.
+
+The correct shape depends on the ``provider`` field of the parent config:
+
+- Deepgram, ElevenLabs, Cartesia: :class:`ApiKeyAuth`
+- Google: :class:`GoogleAuth`
+- Azure: :class:`AzureAuth`
+
+When omitted, the server uses its preconfigured provider credentials.
+"""
 
 
 class STTConfig(BaseModel):
@@ -22,6 +73,14 @@ class STTConfig(BaseModel):
     punctuation: bool = Field(..., description="Whether to include punctuation in transcriptions")
     encoding: str = Field(..., description="Audio encoding format (e.g., 'linear16', 'opus')")
     model: str = Field(..., description="STT model identifier to use")
+    auth: Optional[ProviderAuth] = Field(
+        default=None,
+        description=(
+            "Optional provider auth override for this session. "
+            "Shape depends on the selected provider: "
+            "Deepgram { api_key }, Google { credentials }, Azure { api_key, region }."
+        ),
+    )
 
 
 class TTSConfig(BaseModel):
@@ -67,6 +126,14 @@ class TTSConfig(BaseModel):
     model: str = Field(..., description="TTS model identifier to use")
     pronunciations: list[Pronunciation] = Field(
         default_factory=list, description="Custom pronunciation overrides"
+    )
+    auth: Optional[ProviderAuth] = Field(
+        default=None,
+        description=(
+            "Optional provider auth override for this session or request. "
+            "Shape depends on the selected provider: "
+            "Deepgram/ElevenLabs/Cartesia { api_key }, Google { credentials }, Azure { api_key, region }."
+        ),
     )
 
 
@@ -337,7 +404,7 @@ class SpeakRequest(BaseModel):
     """Request body for POST /speak."""
 
     text: str = Field(..., description="Text to convert to speech")
-    tts_config: TTSConfig = Field(..., description="Provider configuration without API credentials")
+    tts_config: TTSConfig = Field(..., description="TTS configuration, including an optional provider auth override")
 
 
 class SipHook(BaseModel):

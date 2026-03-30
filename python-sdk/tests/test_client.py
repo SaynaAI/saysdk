@@ -261,7 +261,9 @@ class TestSipTransfer:
         assert received[0].track.track_sid == "TR_abc123"
 
     @pytest.mark.asyncio
-    async def test_unknown_message_type_is_logged_and_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
+    async def test_unknown_message_type_is_logged_and_ignored(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Unknown websocket messages should be logged and ignored."""
         client = SaynaClient(
             url="https://api.example.com",

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from sayna_client.credentials import (
     resolve_config_auth,
@@ -20,6 +24,7 @@ from sayna_client.types import (
     STTConfig,
     TTSConfig,
 )
+
 
 SERVICE_ACCOUNT: dict = {
     "type": "service_account",

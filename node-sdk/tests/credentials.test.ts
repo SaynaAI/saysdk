@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/await-thenable */
+// Note: ESLint incorrectly flags await expect().rejects.toThrow() as awaiting non-thenable,
+// but this is the correct pattern for testing async function rejections in Bun/Jest.
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";

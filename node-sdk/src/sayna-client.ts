@@ -35,6 +35,7 @@ import {
   SaynaValidationError,
   SaynaServerError,
 } from "./errors";
+import { resolveConfigAuth } from "./credentials";
 // Runtime detection for WebSocket selection
 const isBun =
   typeof process !== "undefined" &&
@@ -232,6 +233,10 @@ export class SaynaClient {
       return;
     }
 
+    // Resolve Google credentials (JSON string or file path) before connecting
+    const sttConfig = await resolveConfigAuth(this.sttConfig);
+    const ttsConfig = await resolveConfigAuth(this.ttsConfig);
+
     const wsUrl = this.getWebSocketUrl();
 
     return new Promise((resolve, reject) => {
@@ -249,8 +254,8 @@ export class SaynaClient {
           const configMessage: ConfigMessage = {
             type: "config",
             stream_id: this.inputStreamId,
-            stt_config: this.sttConfig,
-            tts_config: this.ttsConfig,
+            stt_config: sttConfig,
+            tts_config: ttsConfig,
             livekit: this.livekitConfig,
             audio: !this.withoutAudio,
           };
@@ -1225,13 +1230,15 @@ export class SaynaClient {
       throw new SaynaValidationError("Text cannot be empty");
     }
 
+    const resolved = await resolveConfigAuth(ttsConfig);
+
     return this.fetchFromSayna<ArrayBuffer>(
       "speak",
       {
         method: "POST",
         body: JSON.stringify({
           text,
-          tts_config: ttsConfig,
+          tts_config: resolved,
         }),
       },
       "arrayBuffer"

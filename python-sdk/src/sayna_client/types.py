@@ -404,7 +404,9 @@ class SpeakRequest(BaseModel):
     """Request body for POST /speak."""
 
     text: str = Field(..., description="Text to convert to speech")
-    tts_config: TTSConfig = Field(..., description="TTS configuration, including an optional provider auth override")
+    tts_config: TTSConfig = Field(
+        ..., description="TTS configuration, including an optional provider auth override"
+    )
 
 
 class SipHook(BaseModel):

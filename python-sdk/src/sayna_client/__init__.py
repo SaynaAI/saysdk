@@ -1,6 +1,7 @@
 """Sayna Python SDK for server-side WebSocket connections."""
 
 from sayna_client.client import SaynaClient
+from sayna_client.credentials import resolve_config_auth, resolve_google_credentials
 from sayna_client.errors import (
     SaynaConnectionError,
     SaynaError,
@@ -129,4 +130,6 @@ __all__ = [
     "WebhookSIPOutput",
     "WebhookSIPParticipant",
     "WebhookSIPRoom",
+    "resolve_config_auth",
+    "resolve_google_credentials",
 ]

@@ -12,6 +12,7 @@ from urllib.parse import quote
 import aiohttp
 from pydantic import ValidationError
 
+from sayna_client.credentials import resolve_config_auth
 from sayna_client.errors import (
     SaynaConnectionError,
     SaynaNotConnectedError,
@@ -179,7 +180,9 @@ class SaynaClient:
         self._on_message: Optional[Callable[[MessageMessage], Any]] = None
         self._on_error: Optional[Callable[[ErrorMessage], Any]] = None
         self._on_sip_transfer_error: Optional[Callable[[SipTransferErrorMessage], Any]] = None
-        self._on_participant_connected: Optional[Callable[[ParticipantConnectedMessage], Any]] = None
+        self._on_participant_connected: Optional[Callable[[ParticipantConnectedMessage], Any]] = (
+            None
+        )
         self._on_participant_disconnected: Optional[
             Callable[[ParticipantDisconnectedMessage], Any]
         ] = None
@@ -312,7 +315,8 @@ class SaynaClient:
             >>> audio_data, headers = await client.speak_rest("Hello, world!", tts_config)
             >>> print(f"Received {len(audio_data)} bytes of {headers['Content-Type']}")
         """
-        request = SpeakRequest(text=text, tts_config=tts_config)
+        resolved_tts = resolve_config_auth(tts_config)
+        request = SpeakRequest(text=text, tts_config=resolved_tts)
         return await self._http_client.post_binary("/speak", json_data=request.model_dump())
 
     async def get_livekit_token(
@@ -829,12 +833,12 @@ class SaynaClient:
             self._connected = True
             logger.info("Connected to Sayna WebSocket: %s", ws_url)
 
-            # Send config message
+            # Send config message (resolve Google credentials before sending)
             config = ConfigMessage(
                 stream_id=self.stream_id,
                 audio=self.audio_enabled,
-                stt_config=self.stt_config,
-                tts_config=self.tts_config,
+                stt_config=resolve_config_auth(self.stt_config),
+                tts_config=resolve_config_auth(self.tts_config),
                 livekit=self.livekit_config,
             )
             await self._send_json(config.model_dump(exclude_none=True))
@@ -1321,9 +1325,7 @@ class SaynaClient:
             except Exception as e:
                 logger.exception("Error in SIP transfer error callback: %s", e)
 
-    async def _handle_participant_connected(
-        self, message: ParticipantConnectedMessage
-    ) -> None:
+    async def _handle_participant_connected(self, message: ParticipantConnectedMessage) -> None:
         """Handle participant connected message."""
         logger.info("Participant connected: %s", message.participant.identity)
         if self._on_participant_connected:

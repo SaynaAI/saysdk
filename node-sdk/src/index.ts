@@ -4,6 +4,7 @@ import type { STTConfig, TTSConfig, LiveKitConfig } from "./types";
 export * from "./sayna-client";
 export * from "./types";
 export * from "./errors";
+export * from "./credentials";
 export * from "./webhook-receiver";
 
 /**

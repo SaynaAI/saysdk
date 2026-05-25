@@ -62,6 +62,11 @@ Unknown or malformed websocket control messages should be logged and ignored so 
 - `onAudioInput(audioData)` - Send audio for STT
 - `sendMessage(message, role, topic?, debug?)` - Send LiveKit data message
 - `sipTransfer(transferTo)` - Initiate SIP call transfer
+- `loadingStart()` - Begin server-side seamless playback loop of the configured loading audio clip on a dedicated LiveKit track; fire-and-forget; errors surface via `registerOnError`
+- `loadingStop()` - Stop the loading-audio loop with a short server-side fade-out; never reports a server-side error
+
+### Loading Indicator
+A `LoadingAudioConfig` passed as the constructor's 8th positional argument (or the `saynaConnect()` 7th argument) registers a base64-encoded WAV or raw 16-bit little-endian PCM clip that the server loops on a dedicated `"loading-audio"` LiveKit track while `loadingStart()` is active. The clip is decoded once at config time; the SDK does no audio decoding or file IO. The application must call `loadingStop()` before `speak()` to avoid overlap — neither the SDK nor the server auto-stop the loop on speech. See the Loading Indicator section of `node-sdk/README.md` and `../sayna/docs/websocket.md#loading-indicator`.
 
 ## Documentation Reference
 

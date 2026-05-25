@@ -3,9 +3,16 @@ import { SaynaClient } from "../src/sayna-client";
 import {
   SaynaValidationError,
   SaynaNotConnectedError,
+  SaynaNotReadyError,
+  SaynaConnectionError,
   SaynaServerError,
 } from "../src/errors";
-import type { STTConfig, TTSConfig } from "../src/types";
+import type {
+  STTConfig,
+  TTSConfig,
+  LiveKitConfig,
+  LoadingAudioConfig,
+} from "../src/types";
 
 function getTestSTTConfig(): STTConfig {
   return {
@@ -735,6 +742,487 @@ describe("SaynaClient REST API Methods", () => {
   });
 });
 /* eslint-enable @typescript-eslint/await-thenable */
+
+describe("SaynaClient Loading Indicator constructor validation", () => {
+  test("should reject empty data string with a SaynaValidationError mentioning loadingAudio.data", () => {
+    expect(
+      () =>
+        new SaynaClient(
+          "https://api.example.com",
+          getTestSTTConfig(),
+          getTestTTSConfig(),
+          undefined,
+          false,
+          undefined,
+          undefined,
+          { data: "" }
+        )
+    ).toThrow(SaynaValidationError);
+
+    expect(
+      () =>
+        new SaynaClient(
+          "https://api.example.com",
+          getTestSTTConfig(),
+          getTestTTSConfig(),
+          undefined,
+          false,
+          undefined,
+          undefined,
+          { data: "" }
+        )
+    ).toThrow("loadingAudio.data");
+  });
+
+  test("should reject unknown format value with a SaynaValidationError mentioning format and the allowed values", () => {
+    const bogus = { data: "abc", format: "mp3" } as unknown as LoadingAudioConfig;
+
+    expect(
+      () =>
+        new SaynaClient(
+          "https://api.example.com",
+          getTestSTTConfig(),
+          getTestTTSConfig(),
+          undefined,
+          false,
+          undefined,
+          undefined,
+          bogus
+        )
+    ).toThrow(SaynaValidationError);
+
+    expect(
+      () =>
+        new SaynaClient(
+          "https://api.example.com",
+          getTestSTTConfig(),
+          getTestTTSConfig(),
+          undefined,
+          false,
+          undefined,
+          undefined,
+          bogus
+        )
+    ).toThrow("loadingAudio.format");
+
+    expect(
+      () =>
+        new SaynaClient(
+          "https://api.example.com",
+          getTestSTTConfig(),
+          getTestTTSConfig(),
+          undefined,
+          false,
+          undefined,
+          undefined,
+          bogus
+        )
+    ).toThrow('"wav" or "pcm"');
+  });
+
+  test("should accept a minimal valid loadingAudio with only data", () => {
+    expect(() => {
+      new SaynaClient(
+        "https://api.example.com",
+        getTestSTTConfig(),
+        getTestTTSConfig(),
+        undefined,
+        false,
+        undefined,
+        undefined,
+        { data: "abc" }
+      );
+    }).not.toThrow();
+  });
+
+  test("should reject an empty object loadingAudio with a SaynaValidationError mentioning loadingAudio.data", () => {
+    const bogus = {} as unknown as LoadingAudioConfig;
+
+    expect(
+      () =>
+        new SaynaClient(
+          "https://api.example.com",
+          getTestSTTConfig(),
+          getTestTTSConfig(),
+          undefined,
+          false,
+          undefined,
+          undefined,
+          bogus
+        )
+    ).toThrow(SaynaValidationError);
+
+    expect(
+      () =>
+        new SaynaClient(
+          "https://api.example.com",
+          getTestSTTConfig(),
+          getTestTTSConfig(),
+          undefined,
+          false,
+          undefined,
+          undefined,
+          bogus
+        )
+    ).toThrow("loadingAudio.data");
+  });
+
+  test("should reject non-object loadingAudio inputs with a SaynaValidationError", () => {
+    const nonObjects: unknown[] = ["AAA=", 42, true, null, ["data"]];
+
+    for (const bogus of nonObjects) {
+      expect(
+        () =>
+          new SaynaClient(
+            "https://api.example.com",
+            getTestSTTConfig(),
+            getTestTTSConfig(),
+            undefined,
+            false,
+            undefined,
+            undefined,
+            bogus as LoadingAudioConfig
+          )
+      ).toThrow(SaynaValidationError);
+    }
+  });
+});
+
+describe("SaynaClient Loading Indicator config frame emission", () => {
+  /**
+   * Drives `SaynaClient.connect()` against an in-memory fake WebSocket and returns the
+   * payloads the SDK actually sends. The fake intercepts `createWebSocket`, captures the
+   * `onopen` and `onmessage` hooks the SDK installs, fires `onopen` so `connect()` emits
+   * the `config` frame, then fires a `ready` message so the Promise resolves cleanly.
+   */
+  async function captureConfigFrames(
+    loadingAudio?: LoadingAudioConfig
+  ): Promise<{ sent: string[] }> {
+    const sent: string[] = [];
+    const livekitConfig: LiveKitConfig = { room_name: "test-room" };
+
+    interface FakeWs {
+      binaryType: string;
+      readyState: number;
+      send: (payload: string) => void;
+      close: () => void;
+      onopen: ((event?: unknown) => void) | null;
+      onmessage: ((event: { data: string }) => void) | null;
+      onerror: ((event?: unknown) => void) | null;
+      onclose: ((event: { code: number; reason: string }) => void) | null;
+    }
+
+    const fakeWs: FakeWs = {
+      binaryType: "arraybuffer",
+      readyState: 1,
+      send: (payload: string) => sent.push(payload),
+      close: () => {},
+      onopen: null,
+      onmessage: null,
+      onerror: null,
+      onclose: null,
+    };
+
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig(),
+      livekitConfig,
+      false,
+      undefined,
+      undefined,
+      loadingAudio
+    );
+
+    // Replace the runtime WebSocket constructor with a factory that returns the fake.
+    // Stub installation must happen before connect() reaches `createWebSocket`, which it
+    // does after two `await resolveConfigAuth(...)` microtask hops.
+    (client as any).createWebSocket = () => fakeWs;
+
+    const connected = client.connect();
+
+    // Wait for `connect()` to clear its two `await resolveConfigAuth(...)` points before
+    // the SDK assigns the `onopen`/`onmessage` handlers on the fake WebSocket. We drain
+    // up to a handful of microtasks; in practice both awaits resolve in the first.
+    for (let i = 0; i < 8 && !(fakeWs.onopen && fakeWs.onmessage); i += 1) {
+      await Promise.resolve();
+    }
+
+    // Fire the open handler so connect() emits the config frame, then deliver a ready
+    // message so the Promise resolves and the test completes deterministically.
+    if (fakeWs.onopen) {
+      fakeWs.onopen();
+    }
+    if (fakeWs.onmessage) {
+      fakeWs.onmessage({
+        data: JSON.stringify({ type: "ready", stream_id: "test-stream" }),
+      });
+    }
+
+    await connected;
+    client.disconnect();
+
+    return { sent };
+  }
+
+  test("config frame includes loading_audio when supplied at construction", async () => {
+    const audio: LoadingAudioConfig = {
+      data: "AAA=",
+      format: "wav",
+      sample_rate: 16000,
+      channels: 1,
+      volume: 0.75,
+    };
+
+    const { sent } = await captureConfigFrames(audio);
+
+    expect(sent.length).toBe(1);
+    const payload = JSON.parse(sent[0] ?? "{}");
+    expect(payload.type).toBe("config");
+    expect(payload.loading_audio).toEqual(audio);
+  });
+
+  test("config frame omits loading_audio when not supplied", async () => {
+    const { sent } = await captureConfigFrames();
+
+    expect(sent.length).toBe(1);
+    const payload = JSON.parse(sent[0] ?? "{}");
+    expect(payload.type).toBe("config");
+    expect(Object.prototype.hasOwnProperty.call(payload, "loading_audio")).toBe(
+      false
+    );
+  });
+});
+
+describe("SaynaClient loadingStart", () => {
+  test("should throw SaynaNotConnectedError when called before connect", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(() => client.loadingStart()).toThrow(SaynaNotConnectedError);
+  });
+
+  test("should throw SaynaNotReadyError when called after connect but before ready", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    (client as any).websocket = { send: () => {} } as unknown as WebSocket;
+    (client as any).isConnected = true;
+
+    expect(() => client.loadingStart()).toThrow(SaynaNotReadyError);
+  });
+
+  test("should emit a single loading_start frame when ready", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const sent: string[] = [];
+    (client as any).websocket = {
+      send: (payload: string) => sent.push(payload),
+    } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    client.loadingStart();
+
+    expect(sent.length).toBe(1);
+    const payload = JSON.parse(sent[0] ?? "{}");
+    expect(payload).toEqual({ type: "loading_start" });
+  });
+
+  test("should wrap synchronous send failures in SaynaConnectionError with cause", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const underlying = new Error("socket gone");
+    (client as any).websocket = {
+      send: () => {
+        throw underlying;
+      },
+    } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    let captured: unknown;
+    try {
+      client.loadingStart();
+    } catch (error) {
+      captured = error;
+    }
+
+    expect(captured).toBeInstanceOf(SaynaConnectionError);
+    const connectionError = captured as SaynaConnectionError;
+    expect(connectionError.message).toContain(
+      "Failed to send loading_start command"
+    );
+    expect(connectionError.cause).toBe(underlying);
+  });
+});
+
+describe("SaynaClient loadingStop", () => {
+  test("should throw SaynaNotConnectedError when called before connect", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    expect(() => client.loadingStop()).toThrow(SaynaNotConnectedError);
+  });
+
+  test("should throw SaynaNotReadyError when called after connect but before ready", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    (client as any).websocket = { send: () => {} } as unknown as WebSocket;
+    (client as any).isConnected = true;
+
+    expect(() => client.loadingStop()).toThrow(SaynaNotReadyError);
+  });
+
+  test("should emit a single loading_stop frame when ready", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const sent: string[] = [];
+    (client as any).websocket = {
+      send: (payload: string) => sent.push(payload),
+    } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    client.loadingStop();
+
+    expect(sent.length).toBe(1);
+    const payload = JSON.parse(sent[0] ?? "{}");
+    expect(payload).toEqual({ type: "loading_stop" });
+  });
+
+  test("should wrap synchronous send failures in SaynaConnectionError with cause", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    const underlying = new Error("socket gone");
+    (client as any).websocket = {
+      send: () => {
+        throw underlying;
+      },
+    } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    let captured: unknown;
+    try {
+      client.loadingStop();
+    } catch (error) {
+      captured = error;
+    }
+
+    expect(captured).toBeInstanceOf(SaynaConnectionError);
+    const connectionError = captured as SaynaConnectionError;
+    expect(connectionError.message).toContain(
+      "Failed to send loading_stop command"
+    );
+    expect(connectionError.cause).toBe(underlying);
+  });
+});
+
+describe("SaynaClient Loading Indicator server error propagation", () => {
+  test("should deliver server loading_audio error message to the registerOnError callback", async () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig()
+    );
+
+    let receivedMessage: string | undefined;
+    client.registerOnError((error) => {
+      receivedMessage = error.message;
+    });
+
+    await (client as any).handleJsonMessage({
+      type: "error",
+      message: "loading_audio.data is not valid base64",
+    });
+
+    expect(receivedMessage).toBe("loading_audio.data is not valid base64");
+  });
+});
+
+describe("SaynaClient speak and clear do not send loading_stop", () => {
+  test("speak emits exactly one speak frame (no implicit loading_stop) even when loadingAudio is configured", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig(),
+      { room_name: "test-room" },
+      false,
+      undefined,
+      undefined,
+      { data: "AAA=" }
+    );
+
+    const sent: string[] = [];
+    (client as any).websocket = {
+      send: (payload: string) => sent.push(payload),
+    } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    client.speak("hello");
+
+    expect(sent.length).toBe(1);
+    const payload = JSON.parse(sent[0] ?? "{}");
+    expect(payload.type).toBe("speak");
+  });
+
+  test("clear emits exactly one clear frame (no implicit loading_stop) even when loadingAudio is configured", () => {
+    const client = new SaynaClient(
+      "https://api.example.com",
+      getTestSTTConfig(),
+      getTestTTSConfig(),
+      { room_name: "test-room" },
+      false,
+      undefined,
+      undefined,
+      { data: "AAA=" }
+    );
+
+    const sent: string[] = [];
+    (client as any).websocket = {
+      send: (payload: string) => sent.push(payload),
+    } as unknown as WebSocket;
+    (client as any).isConnected = true;
+    (client as any).isReady = true;
+
+    client.clear();
+
+    expect(sent.length).toBe(1);
+    const payload = JSON.parse(sent[0] ?? "{}");
+    expect(payload.type).toBe("clear");
+  });
+});
 
 describe("SaynaClient SIP Transfer", () => {
   test("should send sip_transfer payload", () => {

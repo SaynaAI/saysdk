@@ -31,6 +31,9 @@ from sayna_client.types import (
     LiveKitRoomsResponse,
     LiveKitTokenRequest,
     LiveKitTokenResponse,
+    LoadingAudioConfig,
+    LoadingStartMessage,
+    LoadingStopMessage,
     MessageMessage,
     MuteLiveKitParticipantRequest,
     MuteLiveKitParticipantResponse,
@@ -105,6 +108,7 @@ class SaynaClient:
         without_audio: bool = False,
         api_key: Optional[str] = None,
         stream_id: Optional[str] = None,
+        loading_audio: Optional[LoadingAudioConfig] = None,
     ) -> None:
         """Initialize the Sayna client.
 
@@ -116,9 +120,17 @@ class SaynaClient:
             without_audio: If True, disables audio streaming (sends audio=False for control-only sessions)
             api_key: Optional API key for authentication (defaults to SAYNA_API_KEY env)
             stream_id: Optional session identifier for recording paths; server generates a UUID when omitted
+            loading_audio: Optional loading-indicator clip sent inside the initial ``config`` frame
+                on :meth:`connect`. The server decodes it once at config time; decode failures
+                arrive asynchronously on the registered ``on_error`` callback and the session
+                stays alive. Only effective when audio is enabled (``without_audio=False``) and a
+                ``livekit_config`` is supplied. See ``../sayna/docs/websocket.md`` (Loading
+                Indicator section) for the full protocol contract.
 
         Raises:
-            SaynaValidationError: If URL is invalid or if audio configs are missing when audio is enabled
+            SaynaValidationError: If URL is invalid, if audio configs are missing when audio is
+                enabled, or if ``loading_audio`` is not a :class:`LoadingAudioConfig` instance or
+                carries an empty ``data`` field.
         """
         # Validate URL
         if not url or not isinstance(url, str):
@@ -137,10 +149,17 @@ class SaynaClient:
             )
             raise SaynaValidationError(msg)
 
+        # Validate loading_audio: strict instance check + non-empty data guard.
+        # Deeper rules (format, sample-rate range, channel count, duration, bit depth, byte cap)
+        # are enforced server-side; mirroring them here would risk drift and force SDK releases
+        # whenever the server widens or narrows a range.
+        self._validate_loading_audio(loading_audio)
+
         self.url = url
         self.stt_config = stt_config
         self.tts_config = tts_config
         self.livekit_config = livekit_config
+        self.loading_audio: Optional[LoadingAudioConfig] = loading_audio
         self.without_audio = without_audio
         self.audio_enabled = audio_enabled
         self.api_key = api_key or os.environ.get("SAYNA_API_KEY")
@@ -840,6 +859,7 @@ class SaynaClient:
                 stt_config=resolve_config_auth(self.stt_config),
                 tts_config=resolve_config_auth(self.tts_config),
                 livekit=self.livekit_config,
+                loading_audio=self.loading_audio,
             )
             await self._send_json(config.model_dump(exclude_none=True))
 
@@ -959,6 +979,69 @@ class SaynaClient:
         self._check_ready()
         message = ClearMessage()
         await self._send_json(message.model_dump(exclude_none=True))
+
+    async def loading_start(self) -> None:
+        """Start the loading-indicator audio loop on a dedicated LiveKit track.
+
+        Fire-and-forget: there is no return value, success is silent on the wire, and the
+        method does not await a server acknowledgement. Any asynchronous server failure
+        (no clip configured, audio disabled, no LiveKit room, decode failure at config time,
+        track failed to publish, LiveKit not connected) arrives later as a standard ``error``
+        message and is dispatched to the callback registered via :meth:`register_on_error`.
+
+        Idempotent server-side: calling twice while the loop is running -- including during the
+        brief fade-out window of a prior :meth:`loading_stop` -- is a no-op.
+
+        Requires audio to be enabled, a LiveKit room to be configured, and a
+        ``loading_audio`` argument supplied at construction time. The SDK does not pre-check
+        these prerequisites; the server enforces them and reports failures through the
+        ``error`` channel.
+
+        :meth:`speak` and :meth:`clear` do **not** stop the loop. Callers that do not want
+        overlap with synthesized speech must call :meth:`loading_stop` before :meth:`speak`.
+
+        Raises:
+            SaynaNotConnectedError: If not connected.
+            SaynaNotReadyError: If not ready.
+            SaynaConnectionError: If sending the frame fails at the transport layer.
+        """
+        self._check_ready()
+        message = LoadingStartMessage()
+        try:
+            await self._send_json(message.model_dump(exclude_none=True))
+        except (SaynaNotConnectedError, SaynaNotReadyError):
+            raise
+        except Exception as e:
+            logger.exception("Failed to send loading_start message: %s", e)
+            msg = "Failed to send loading_start message"
+            raise SaynaConnectionError(msg, cause=e) from e
+
+    async def loading_stop(self) -> None:
+        """Stop the loading-indicator audio loop with a short server-side fade-out.
+
+        Fire-and-forget and always silent server-side: the server never returns an ``error``
+        for ``loading_stop``, even when no loop is running or no LiveKit room is configured.
+
+        Calling :meth:`loading_stop` while the client is not connected still raises
+        :class:`~sayna_client.errors.SaynaNotConnectedError`, consistent with :meth:`clear`,
+        so cleanup invoked on a disposed client is visible to the application instead of
+        being silently swallowed.
+
+        Raises:
+            SaynaNotConnectedError: If not connected.
+            SaynaNotReadyError: If not ready.
+            SaynaConnectionError: If sending the frame fails at the transport layer.
+        """
+        self._check_ready()
+        message = LoadingStopMessage()
+        try:
+            await self._send_json(message.model_dump(exclude_none=True))
+        except (SaynaNotConnectedError, SaynaNotReadyError):
+            raise
+        except Exception as e:
+            logger.exception("Failed to send loading_stop message: %s", e)
+            msg = "Failed to send loading_stop message"
+            raise SaynaConnectionError(msg, cause=e) from e
 
     async def tts_flush(self, allow_interruption: bool = True) -> None:
         """Flush the TTS queue by sending an empty speak command.
@@ -1155,6 +1238,26 @@ class SaynaClient:
     # ============================================================================
     # Internal Methods
     # ============================================================================
+
+    @staticmethod
+    def _validate_loading_audio(loading_audio: Optional[LoadingAudioConfig]) -> None:
+        """Validate the constructor's ``loading_audio`` argument.
+
+        Pydantic enforces shape (``extra="forbid"``, ``Literal["wav", "pcm"]``) when the user
+        builds the model, so this guard focuses on the two checks Pydantic does not perform: the
+        argument must be a :class:`LoadingAudioConfig` (failing the deep checks early instead of
+        inside :meth:`connect`), and ``data`` must be a non-empty string. The server is
+        authoritative on every audio-content rule (duration, bit depth, byte cap, channel count,
+        sample-rate range); mirroring those here would invite drift.
+        """
+        if loading_audio is None:
+            return
+        if not isinstance(loading_audio, LoadingAudioConfig):
+            msg = "loading_audio must be a LoadingAudioConfig instance"
+            raise SaynaValidationError(msg)
+        if not loading_audio.data:
+            msg = "loading_audio.data must be a non-empty base64 string"
+            raise SaynaValidationError(msg)
 
     def _check_connected(self) -> None:
         """Check if connected, raise error if not."""

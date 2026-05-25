@@ -90,6 +90,8 @@ Unknown or malformed websocket control messages should be logged and ignored so 
 - `on_audio_input(audio_data)` - Send audio bytes for STT
 - `send_message(message, role, topic=None, debug=None)`
 - `tts_flush(allow_interruption=True)`
+- `loading_start()` - Async fire-and-forget; tells the server to begin the seamless playback loop of the configured loading-audio clip on a dedicated `"loading-audio"` LiveKit track. Idempotent server-side; failures (no clip configured, audio disabled, no LiveKit, decode failure, track publish failure) surface via `register_on_error`.
+- `loading_stop()` - Async fire-and-forget; tells the server to stop the loading-audio loop with a short fade-out. Always silent server-side (no `error` is emitted even if no loop is running).
 
 ### Client Properties
 - `ready` - Boolean, connection ready state
@@ -105,6 +107,7 @@ Key models in `types.py`:
 - `STTConfig` - Speech-to-text configuration
 - `TTSConfig` - Text-to-speech configuration
 - `LiveKitConfig` - LiveKit room configuration
+- `LoadingAudioConfig` - Loading-indicator audio clip uploaded once at config time via the `loading_audio=` constructor kwarg. Fields: `data` (base64, required), `format: Literal["wav", "pcm"]` (optional), `sample_rate` (optional, required for raw PCM), `channels` (optional), `volume` (optional, clamped to `[0.0, 1.0]`). `extra="forbid"` rejects unknown fields. The server decodes once at config time; decode failures arrive on `register_on_error`.
 - `STTResult` - Transcription result
 - `VoiceDescriptor` - TTS voice info
 - `SipHook` - SIP webhook entry

@@ -2,9 +2,12 @@ import type {
   STTConfig,
   TTSConfig,
   LiveKitConfig,
+  LoadingAudioConfig,
   ConfigMessage,
   SpeakMessage,
   ClearMessage,
+  LoadingStartMessage,
+  LoadingStopMessage,
   SendMessageMessage,
   STTResultMessage,
   ErrorMessage,
@@ -143,6 +146,7 @@ export class SaynaClient {
   private sttConfig?: STTConfig;
   private ttsConfig?: TTSConfig;
   private livekitConfig?: LiveKitConfig;
+  private loadingAudio?: LoadingAudioConfig;
   private withoutAudio: boolean;
   private apiKey?: string;
   private websocket?: InstanceType<typeof WebSocket>;
@@ -176,8 +180,16 @@ export class SaynaClient {
    * @param withoutAudio - If true, disables audio streaming (default: false)
    * @param apiKey - Optional API key used to authorize HTTP and WebSocket calls (defaults to SAYNA_API_KEY env)
    * @param streamId - Optional session identifier for recording paths; server generates a UUID when omitted
+   * @param loadingAudio - Optional loading-indicator clip sent inside the initial `config` frame on
+   *   {@link SaynaClient.connect}. The server decodes it once at config time and loops it on a
+   *   dedicated LiveKit audio track when {@link SaynaClient.loadingStart} is called. Decode failures
+   *   arrive asynchronously through {@link SaynaClient.registerOnError} and do not abort the session.
+   *   Only effective when `withoutAudio=false` and `livekitConfig` is supplied. See the Loading
+   *   Indicator section of `../sayna/docs/websocket.md` for the protocol contract.
    *
-   * @throws {SaynaValidationError} If URL is invalid or if audio configs are missing when audio is enabled
+   * @throws {SaynaValidationError} If URL is invalid, if audio configs are missing when audio is
+   *   enabled, or if `loadingAudio` is supplied but is not an object, has empty `data`, or has an
+   *   unrecognised `format` value.
    */
   constructor(
     url: string,
@@ -186,7 +198,8 @@ export class SaynaClient {
     livekitConfig?: LiveKitConfig,
     withoutAudio: boolean = false,
     apiKey?: string,
-    streamId?: string
+    streamId?: string,
+    loadingAudio?: LoadingAudioConfig
   ) {
     // Validate URL
     if (!url || typeof url !== "string") {
@@ -213,10 +226,16 @@ export class SaynaClient {
       }
     }
 
+    // Validate loadingAudio when supplied. Deeper rules (sample-rate range, channel count,
+    // duration, bit depth, byte cap, base64 decode) are server-authoritative; mirroring them
+    // would force SDK releases whenever the server widens or narrows a limit.
+    SaynaClient.validateLoadingAudio(loadingAudio);
+
     this.url = url;
     this.sttConfig = sttConfig;
     this.ttsConfig = ttsConfig;
     this.livekitConfig = livekitConfig;
+    this.loadingAudio = loadingAudio;
     this.withoutAudio = withoutAudio;
     this.apiKey = apiKey ?? process.env.SAYNA_API_KEY;
     this.inputStreamId = streamId;
@@ -257,6 +276,7 @@ export class SaynaClient {
             stt_config: sttConfig,
             tts_config: ttsConfig,
             livekit: this.livekitConfig,
+            loading_audio: this.loadingAudio,
             audio: !this.withoutAudio,
           };
 
@@ -724,6 +744,51 @@ export class SaynaClient {
   }
 
   /**
+   * Runtime guard for the constructor's `loadingAudio` argument.
+   *
+   * Accepts `unknown` because the constructor signature alone cannot stop JS callers from
+   * passing nulls, primitives, or arrays, and the rest of the constructor must trust the
+   * field once it is assigned. The checks here mirror only what cannot be expressed in
+   * TypeScript at the call site (shape + non-empty `data` + closed `format` set); content
+   * rules (sample-rate range, channels, duration, byte cap, base64 decode) are
+   * server-authoritative and are left to the server's `error` channel.
+   * @internal
+   */
+  private static validateLoadingAudio(input: unknown): void {
+    if (typeof input === "undefined") {
+      return;
+    }
+    if (
+      typeof input !== "object" ||
+      input === null ||
+      Array.isArray(input)
+    ) {
+      throw new SaynaValidationError("loadingAudio must be an object");
+    }
+    const candidate = input as {
+      data?: unknown;
+      format?: unknown;
+    };
+    if (
+      typeof candidate.data !== "string" ||
+      candidate.data.length === 0
+    ) {
+      throw new SaynaValidationError(
+        "loadingAudio.data must be a non-empty base64 string"
+      );
+    }
+    if (
+      typeof candidate.format !== "undefined" &&
+      candidate.format !== "wav" &&
+      candidate.format !== "pcm"
+    ) {
+      throw new SaynaValidationError(
+        'loadingAudio.format must be "wav" or "pcm"'
+      );
+    }
+  }
+
+  /**
    * Creates a WebSocket instance using the appropriate constructor for the current runtime.
    * - Node.js (ws package): passes headers via third argument
    * - Bun: passes headers in the second options argument
@@ -1067,6 +1132,90 @@ export class SaynaClient {
       this.websocket.send(JSON.stringify(clearMessage));
     } catch (error) {
       throw new SaynaConnectionError("Failed to send clear command", error);
+    }
+  }
+
+  /**
+   * Starts the loading-indicator audio loop on the dedicated LiveKit track.
+   *
+   * Fire-and-forget: the method returns once the frame is queued on the WebSocket; success
+   * is silent on the wire and there is no acknowledgement to await. Any asynchronous server
+   * failure (no clip configured, audio disabled, no LiveKit room, decode failure at config
+   * time, track failed to publish, LiveKit not connected) is delivered later as a standard
+   * `error` message and surfaces through the callback registered via
+   * {@link SaynaClient.registerOnError}.
+   *
+   * Idempotent server-side: calling twice while the loop is running — including during the
+   * brief fade-out window of a prior {@link SaynaClient.loadingStop} — is a no-op.
+   *
+   * Requires `withoutAudio=false`, a configured LiveKit room, AND a `loadingAudio` argument
+   * supplied to the constructor. The SDK does not pre-check these prerequisites; the server
+   * enforces them and reports any violation through the `error` channel.
+   *
+   * {@link SaynaClient.speak} and {@link SaynaClient.clear} do NOT stop the loop. Callers that
+   * do not want overlap with synthesized speech must call {@link SaynaClient.loadingStop}
+   * before {@link SaynaClient.speak}.
+   *
+   * @throws {SaynaNotConnectedError} If not connected
+   * @throws {SaynaNotReadyError} If connection is not ready
+   * @throws {SaynaConnectionError} If sending the frame fails at the transport layer
+   */
+  loadingStart(): void {
+    if (!this.isConnected || !this.websocket) {
+      throw new SaynaNotConnectedError();
+    }
+
+    if (!this.isReady) {
+      throw new SaynaNotReadyError();
+    }
+
+    try {
+      const message: LoadingStartMessage = {
+        type: "loading_start",
+      };
+      this.websocket.send(JSON.stringify(message));
+    } catch (error) {
+      throw new SaynaConnectionError(
+        "Failed to send loading_start command",
+        error
+      );
+    }
+  }
+
+  /**
+   * Stops the loading-indicator audio loop with a short server-side fade-out.
+   *
+   * Always silent server-side: the server never returns an `error` for `loading_stop`,
+   * even when no loop is running or no LiveKit room is configured.
+   *
+   * Calling {@link SaynaClient.loadingStop} while the client is not connected still throws
+   * {@link SaynaNotConnectedError}, mirroring {@link SaynaClient.clear}, so cleanup invoked
+   * on a disposed client surfaces to the application instead of being silently swallowed.
+   * It is never auto-called by {@link SaynaClient.disconnect}.
+   *
+   * @throws {SaynaNotConnectedError} If not connected
+   * @throws {SaynaNotReadyError} If connection is not ready
+   * @throws {SaynaConnectionError} If sending the frame fails at the transport layer
+   */
+  loadingStop(): void {
+    if (!this.isConnected || !this.websocket) {
+      throw new SaynaNotConnectedError();
+    }
+
+    if (!this.isReady) {
+      throw new SaynaNotReadyError();
+    }
+
+    try {
+      const message: LoadingStopMessage = {
+        type: "loading_stop",
+      };
+      this.websocket.send(JSON.stringify(message));
+    } catch (error) {
+      throw new SaynaConnectionError(
+        "Failed to send loading_stop command",
+        error
+      );
     }
   }
 

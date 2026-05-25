@@ -1,13 +1,22 @@
 """Tests for SaynaClient class."""
 
 import logging
-from typing import Any
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
+from pydantic import ValidationError
 
 from sayna_client import (
+    ErrorMessage,
+    LiveKitConfig,
+    LoadingAudioConfig,
     ParticipantConnectedMessage,
     SaynaClient,
+    SaynaConnectionError,
+    SaynaNotConnectedError,
+    SaynaNotReadyError,
     SaynaValidationError,
     SipTransferErrorMessage,
     STTConfig,
@@ -645,11 +654,338 @@ class TestSipTransferRest:
             await client.sip_transfer_rest("call-room-123", "sip_participant_456", "   ")
 
 
+class _EmptyAsyncIterator:
+    """Async iterator that yields nothing, used to keep the WebSocket receive loop quiet in tests."""
+
+    def __aiter__(self) -> "_EmptyAsyncIterator":
+        return self
+
+    async def __anext__(self) -> Any:
+        raise StopAsyncIteration
+
+
+async def _capture_connect_config_frame(
+    *,
+    loading_audio: Optional[LoadingAudioConfig],
+) -> dict[str, Any]:
+    """Drive ``SaynaClient.connect()`` against a mocked aiohttp stack and capture the config frame.
+
+    Returns the first JSON payload sent to the WebSocket (the ``config`` message). The mocked
+    WebSocket exposes an immediately-exhausted async iterator so the receive loop completes
+    without performing any real I/O.
+    """
+    sent_frames: list[dict[str, Any]] = []
+
+    async def capture(data: dict[str, Any]) -> None:
+        sent_frames.append(data)
+
+    mock_ws = MagicMock(spec=aiohttp.ClientWebSocketResponse)
+    mock_ws.closed = False
+    mock_ws.send_json = AsyncMock(side_effect=capture)
+    mock_ws.close = AsyncMock()
+    mock_ws.__aiter__ = lambda _self: _EmptyAsyncIterator()
+
+    mock_session = MagicMock(spec=aiohttp.ClientSession)
+    mock_session.closed = False
+    mock_session.ws_connect = AsyncMock(return_value=mock_ws)
+    mock_session.close = AsyncMock()
+
+    with patch("sayna_client.client.aiohttp.ClientSession", return_value=mock_session):
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+            livekit_config=LiveKitConfig(room_name="test-room"),
+            loading_audio=loading_audio,
+        )
+        await client.connect()
+        try:
+            assert sent_frames, "connect() did not send a config frame"
+            return sent_frames[0]
+        finally:
+            await client.disconnect()
+
+
+class TestLoadingAudioConstructor:
+    """Tests for the constructor's ``loading_audio`` argument and config-payload wiring."""
+
+    def test_valid_loading_audio_config_accepted(self) -> None:
+        """A LoadingAudioConfig with non-empty data must construct without raising."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+            loading_audio=LoadingAudioConfig(data="abc"),
+        )
+        assert isinstance(client.loading_audio, LoadingAudioConfig)
+        assert client.loading_audio.data == "abc"
+
+    def test_empty_data_rejected_by_constructor(self) -> None:
+        """An empty data string must fail in the constructor with a clear message."""
+        with pytest.raises(SaynaValidationError, match=r"loading_audio\.data"):
+            SaynaClient(
+                url="https://api.example.com",
+                stt_config=_get_test_stt_config(),
+                tts_config=_get_test_tts_config(),
+                loading_audio=LoadingAudioConfig(data=""),
+            )
+
+    def test_pydantic_rejects_non_literal_format_before_client(self) -> None:
+        """Pydantic rejects an invalid format literal at model-build, before SaynaClient runs."""
+        with pytest.raises(ValidationError):
+            LoadingAudioConfig(data="abc", format="mp3")  # type: ignore[arg-type]
+
+    def test_raw_dict_rejected_by_instance_guard(self) -> None:
+        """A raw dict must trip the strict isinstance guard with the documented message."""
+        with pytest.raises(
+            SaynaValidationError,
+            match="loading_audio must be a LoadingAudioConfig instance",
+        ):
+            SaynaClient(
+                url="https://api.example.com",
+                stt_config=_get_test_stt_config(),
+                tts_config=_get_test_tts_config(),
+                loading_audio={"data": "abc"},  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.asyncio
+    async def test_no_loading_audio_omitted_from_connect_frame(self) -> None:
+        """connect() must not include loading_audio in its config frame when unset."""
+        frame = await _capture_connect_config_frame(loading_audio=None)
+        assert frame["type"] == "config"
+        assert "loading_audio" not in frame
+
+    @pytest.mark.asyncio
+    async def test_loading_audio_included_in_connect_frame(self) -> None:
+        """connect() must include the full loading_audio block when supplied."""
+        loading = LoadingAudioConfig(
+            data="QkFTRTY0",
+            format="wav",
+            sample_rate=24000,
+            channels=2,
+            volume=0.6,
+        )
+        frame = await _capture_connect_config_frame(loading_audio=loading)
+        assert frame["type"] == "config"
+        assert frame["loading_audio"] == {
+            "data": "QkFTRTY0",
+            "format": "wav",
+            "sample_rate": 24000,
+            "channels": 2,
+            "volume": 0.6,
+        }
+
+
+def _ready_client_with_capture() -> tuple[SaynaClient, list[dict[str, Any]]]:
+    """Build a connected+ready client whose _send_json appends payloads to a list."""
+    client = SaynaClient(
+        url="https://api.example.com",
+        stt_config=_get_test_stt_config(),
+        tts_config=_get_test_tts_config(),
+    )
+    client._connected = True
+    client._ready = True
+
+    sent: list[dict[str, Any]] = []
+
+    async def fake_send_json(data: dict[str, Any]) -> None:
+        sent.append(data)
+
+    client._send_json = fake_send_json  # type: ignore[assignment]
+    return client, sent
+
+
+class TestLoadingStart:
+    """Tests for the loading_start WebSocket command."""
+
+    @pytest.mark.asyncio
+    async def test_loading_start_requires_connection(self) -> None:
+        """Calling loading_start before connect raises SaynaNotConnectedError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        with pytest.raises(SaynaNotConnectedError):
+            await client.loading_start()
+
+    @pytest.mark.asyncio
+    async def test_loading_start_requires_ready(self) -> None:
+        """Calling loading_start after connect but before ready raises SaynaNotReadyError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        client._connected = True
+        with pytest.raises(SaynaNotReadyError):
+            await client.loading_start()
+
+    @pytest.mark.asyncio
+    async def test_loading_start_sends_single_payload(self) -> None:
+        """After ready, loading_start writes exactly one frame with the wire shape."""
+        client, sent = _ready_client_with_capture()
+        await client.loading_start()
+        assert sent == [{"type": "loading_start"}]
+
+    @pytest.mark.asyncio
+    async def test_loading_start_wraps_send_failure(self) -> None:
+        """A transport-level aiohttp.ClientError is wrapped as SaynaConnectionError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        client._connected = True
+        client._ready = True
+
+        underlying = aiohttp.ClientError("socket broke")
+
+        async def failing_send_json(_data: dict[str, Any]) -> None:
+            raise underlying
+
+        client._send_json = failing_send_json  # type: ignore[assignment]
+
+        with pytest.raises(SaynaConnectionError) as exc_info:
+            await client.loading_start()
+
+        assert "Failed to send loading_start message" in str(exc_info.value)
+        assert exc_info.value.cause is underlying
+
+
+class TestLoadingStop:
+    """Tests for the loading_stop WebSocket command."""
+
+    @pytest.mark.asyncio
+    async def test_loading_stop_requires_connection(self) -> None:
+        """Calling loading_stop before connect raises SaynaNotConnectedError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        with pytest.raises(SaynaNotConnectedError):
+            await client.loading_stop()
+
+    @pytest.mark.asyncio
+    async def test_loading_stop_requires_ready(self) -> None:
+        """Calling loading_stop after connect but before ready raises SaynaNotReadyError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        client._connected = True
+        with pytest.raises(SaynaNotReadyError):
+            await client.loading_stop()
+
+    @pytest.mark.asyncio
+    async def test_loading_stop_sends_single_payload(self) -> None:
+        """After ready, loading_stop writes exactly one frame with the wire shape."""
+        client, sent = _ready_client_with_capture()
+        await client.loading_stop()
+        assert sent == [{"type": "loading_stop"}]
+
+    @pytest.mark.asyncio
+    async def test_loading_stop_wraps_send_failure(self) -> None:
+        """A transport-level aiohttp.ClientError is wrapped as SaynaConnectionError."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        client._connected = True
+        client._ready = True
+
+        underlying = aiohttp.ClientError("socket broke")
+
+        async def failing_send_json(_data: dict[str, Any]) -> None:
+            raise underlying
+
+        client._send_json = failing_send_json  # type: ignore[assignment]
+
+        with pytest.raises(SaynaConnectionError) as exc_info:
+            await client.loading_stop()
+
+        assert "Failed to send loading_stop message" in str(exc_info.value)
+        assert exc_info.value.cause is underlying
+
+
+class TestLoadingErrorPropagation:
+    """Tests that loading-indicator errors reuse the existing error channel."""
+
+    @pytest.mark.asyncio
+    async def test_loading_decode_error_invokes_on_error(self) -> None:
+        """A server error frame for a loading-decode failure reaches the on_error callback."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        received: list[ErrorMessage] = []
+
+        def on_error(message: ErrorMessage) -> None:
+            received.append(message)
+
+        client.register_on_error(on_error)
+
+        await client._handle_text_message(
+            '{"type": "error", "message": "loading_audio.data is not valid base64"}'
+        )
+
+        assert len(received) == 1
+        assert received[0].type == "error"
+        assert received[0].message == "loading_audio.data is not valid base64"
+
+    @pytest.mark.asyncio
+    async def test_async_on_error_callback_is_awaited(self) -> None:
+        """An ``async def`` on_error must be awaited (not just called) for loading error frames."""
+        client = SaynaClient(
+            url="https://api.example.com",
+            stt_config=_get_test_stt_config(),
+            tts_config=_get_test_tts_config(),
+        )
+        awaited_with: list[ErrorMessage] = []
+
+        async def on_error(message: ErrorMessage) -> None:
+            # If the callback is only *called*, the coroutine never reaches this line.
+            awaited_with.append(message)
+
+        client.register_on_error(on_error)
+
+        await client._handle_text_message(
+            '{"type": "error", "message": "loading_audio.data is not valid base64"}'
+        )
+
+        assert len(awaited_with) == 1
+        assert awaited_with[0].message == "loading_audio.data is not valid base64"
+
+
+class TestSpeakAndClearDoNotStopLoadingLoop:
+    """speak() and clear() must remain single-frame; they never emit loading_stop."""
+
+    @pytest.mark.asyncio
+    async def test_speak_emits_only_speak_frame(self) -> None:
+        """Calling speak after ready writes a single speak frame and nothing else."""
+        client, sent = _ready_client_with_capture()
+        await client.speak("hi")
+        assert len(sent) == 1
+        assert sent[0]["type"] == "speak"
+        assert sent[0]["text"] == "hi"
+        assert all(frame["type"] != "loading_stop" for frame in sent)
+
+    @pytest.mark.asyncio
+    async def test_clear_emits_only_clear_frame(self) -> None:
+        """Calling clear after ready writes a single clear frame and nothing else."""
+        client, sent = _ready_client_with_capture()
+        await client.clear()
+        assert sent == [{"type": "clear"}]
+
+
 # TODO: Add integration tests with mock WebSocket server:
-# - Test WebSocket connection with valid config
-# - Test WebSocket message sending (speak, clear, tts_flush, send_message, on_audio_input)
-# - Test message receiving (ready, stt_result, error, etc.)
+# - Test WebSocket message sending (tts_flush, send_message, on_audio_input)
+# - Test message receiving (ready, stt_result, etc.)
 # - Test event callbacks (register_on_tts_audio, register_on_stt_result, etc.)
-# - Test error handling and reconnection
+# - Test reconnection
 # - Test proper cleanup on disconnect
 # - Test REST API methods (health, get_voices, speak_rest, get_livekit_token)

@@ -64,6 +64,8 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+The constructor also accepts an optional `loading_audio=LoadingAudioConfig(...)` keyword argument for a server-side "thinking" audio loop on a dedicated LiveKit track; see [Loading Indicator](#loading-indicator) below.
+
 ## API
 
 ### REST API Methods
@@ -208,7 +210,7 @@ print(f"Total hooks: {len(response.hooks)}")
 
 These methods require an active WebSocket connection:
 
-#### `SaynaClient(url, stt_config, tts_config, livekit_config=None, without_audio=False, api_key=None)`
+#### `SaynaClient(url, stt_config, tts_config, livekit_config=None, without_audio=False, api_key=None, stream_id=None, loading_audio=None)`
 
 Creates a new SaynaClient instance.
 
@@ -220,6 +222,8 @@ Creates a new SaynaClient instance.
 | `livekit_config` | `LiveKitConfig` (optional) | `None` | Optional LiveKit room configuration. |
 | `without_audio` | `bool` | `False` | Disable audio streaming. |
 | `api_key` | `str` (optional) | `None` | API key for authentication. |
+| `stream_id` | `str` (optional) | `None` | Session identifier for recording paths; server generates a UUID when omitted. |
+| `loading_audio` | `LoadingAudioConfig` (optional) | `None` | Server-side "thinking" audio clip looped on a dedicated LiveKit track when `loading_start()` is called. See [Loading Indicator](#loading-indicator) below. |
 
 ---
 
@@ -349,6 +353,28 @@ Flushes the TTS queue by sending an empty speak command.
 
 ---
 
+#### `await client.loading_start()`
+
+Tells the server to begin the seamless playback loop of the configured loading-audio clip on the dedicated `"loading-audio"` LiveKit track. Fire-and-forget: the call returns as soon as the WebSocket frame is sent, without waiting for a server acknowledgement.
+
+Server-side this is idempotent: calling `loading_start()` while the loop is already running (including during the brief fade-out window of a prior `loading_stop()`) is a no-op.
+
+Requires audio to be enabled, a LiveKit room to be configured, and a `loading_audio` argument supplied at construction time. The SDK does not pre-check these prerequisites; the server enforces them and reports failures through the `error` channel — see [Loading Indicator](#loading-indicator).
+
+**Raises**: `SaynaNotConnectedError` if not connected; `SaynaNotReadyError` if the session is not ready; `SaynaConnectionError` if the transport-layer send fails.
+
+---
+
+#### `await client.loading_stop()`
+
+Tells the server to stop the loading-indicator audio loop with a short server-side fade-out. Fire-and-forget and always silent on the server side: the server never emits an `error` for `loading_stop`, even when no loop is running or no LiveKit room is configured.
+
+Call this immediately before `speak()` if you do not want the loop to overlap with synthesized speech. See [Loading Indicator](#loading-indicator) for the full call flow.
+
+**Raises**: `SaynaNotConnectedError` if not connected; `SaynaNotReadyError` if the session is not ready; `SaynaConnectionError` if the transport-layer send fails.
+
+---
+
 #### `await client.disconnect()`
 
 Disconnects from the WebSocket server and cleans up resources.
@@ -363,6 +389,112 @@ Disconnects from the WebSocket server and cleans up resources.
 - **`client.livekit_url`**: LiveKit URL (available after ready).
 - **`client.sayna_participant_identity`**: Sayna participant identity (available after ready when LiveKit is enabled).
 - **`client.sayna_participant_name`**: Sayna participant name (available after ready when LiveKit is enabled).
+
+---
+
+### Loading Indicator
+
+The Sayna server can play a short audio clip as a seamless loop while your application is busy ("thinking"), giving the caller an audible equivalent of a spinner. The loop is published on a dedicated LiveKit audio track named `"loading-audio"` that is independent of the speech track (`"tts-audio"`), so it never interferes with STT or TTS. The SDK does not decode, parse, or play the audio itself; it forwards the configuration to the server, which performs all decoding, validation, volume scaling, and looping.
+
+The authoritative protocol contract lives in [`../sayna/docs/websocket.md#loading-indicator`](../sayna/docs/websocket.md#loading-indicator); see also [`../sayna/docs/api-reference.md`](../sayna/docs/api-reference.md) and the server change in [`SaynaAI/sayna#18`](https://github.com/SaynaAI/sayna/pull/18).
+
+#### `LoadingAudioConfig`
+
+Pydantic model passed once to the constructor via `loading_audio=`. Unknown fields are rejected (`extra="forbid"`).
+
+```python
+from typing import Literal, Optional
+from pydantic import BaseModel
+
+class LoadingAudioConfig(BaseModel):
+    data: str                                   # required, base64-encoded
+    format: Optional[Literal["wav", "pcm"]] = None
+    sample_rate: Optional[int] = None
+    channels: Optional[int] = None
+    volume: Optional[float] = None
+```
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `data` | `str` (required) | Base64-encoded audio bytes (standard alphabet, padded): either a complete WAV file or raw 16-bit little-endian PCM. |
+| `format` | `Literal["wav", "pcm"]` (optional) | Container hint. Omit to let the server auto-detect from the RIFF/WAVE signature. Any other value is rejected by the server. |
+| `sample_rate` | `int` (optional) | Sample rate in Hz (8000-48000). Required for raw PCM (no header is present); ignored for WAV (the header is authoritative). |
+| `channels` | `int` (optional) | Channel count for raw PCM (typically 1 or 2). Defaults to 1 server-side. Ignored for WAV. |
+| `volume` | `float` (optional) | Playback volume in `[0.0, 1.0]`. Defaults to 1.0. Out-of-range values are clamped by the server (not rejected). Applied once at config time as amplitude scaling; there is no runtime volume control. |
+
+The server is authoritative on every audio-content rule (duration, bit depth, byte cap, channel count, sample-rate range). The SDK does not mirror those limits to avoid drift.
+
+#### Loading a WAV file and base64-encoding it
+
+The SDK ships no file-loading helper; encoding lives in your application code:
+
+```python
+import base64
+
+with open("loading.wav", "rb") as f:
+    data = base64.b64encode(f.read()).decode("ascii")
+```
+
+#### Full call flow
+
+```python
+import asyncio
+import base64
+from sayna_client import (
+    SaynaClient,
+    STTConfig,
+    TTSConfig,
+    LiveKitConfig,
+    LoadingAudioConfig,
+)
+
+async def main():
+    with open("loading.wav", "rb") as f:
+        loading_data = base64.b64encode(f.read()).decode("ascii")
+
+    client = SaynaClient(
+        url="https://api.sayna.ai",
+        stt_config=STTConfig(provider="deepgram", model="nova-2"),
+        tts_config=TTSConfig(provider="cartesia", voice_id="example-voice"),
+        livekit_config=LiveKitConfig(room_name="my-room"),
+        loading_audio=LoadingAudioConfig(data=loading_data, format="wav"),
+        api_key="your-api-key",
+    )
+
+    client.register_on_error(lambda err: print(f"Server error: {err.message}"))
+
+    await client.connect()
+
+    # User turn complete: start the loop while the application thinks.
+    await client.loading_start()
+
+    # ...application does its background work (LLM call, database lookup, etc.)...
+
+    # IMPORTANT: stop the loop BEFORE calling speak(). The server and SDK
+    # deliberately do not auto-stop the loop on speak()/clear() so callers
+    # control the overlap explicitly. Skipping loading_stop() will play the
+    # loop and the spoken answer simultaneously on separate LiveKit tracks.
+    await client.loading_stop()
+    await client.speak("Here is the answer.")
+
+    await client.disconnect()
+
+asyncio.run(main())
+```
+
+#### Error channel
+
+Loading-indicator failures arrive on the existing `register_on_error(callback)` channel as plain `ErrorMessage` instances; there is no separate `loading_error` event, no `register_on_loading_error` callback, and no dedicated exception class. The following conditions all surface this way:
+
+- A `LoadingAudioConfig` was supplied but the server failed to decode it (invalid base64, unsupported format, sample rate or channel count out of range, clip too long, byte cap exceeded). The decode happens once at config time, and the session stays alive afterwards.
+- `loading_start()` was called but no `loading_audio` was supplied at construction time, audio was disabled (`without_audio=True`), or no `livekit_config` was supplied.
+- `loading_start()` was called but the dedicated `"loading-audio"` LiveKit track failed to publish or the LiveKit room is not connected.
+
+Any application that already registers an error callback observes loading failures automatically.
+
+#### LiveKit publisher-timeout reconnect
+
+If the LiveKit room reconnects while the loop was running, the server tears down the loop and clears the audio source. The loop does **not** auto-resume; if you still want loading audio to play, call `loading_start()` again after the reconnect.
 
 ---
 

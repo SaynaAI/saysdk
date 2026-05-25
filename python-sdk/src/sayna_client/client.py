@@ -1011,7 +1011,7 @@ class SaynaClient:
             await self._send_json(message.model_dump(exclude_none=True))
         except (SaynaNotConnectedError, SaynaNotReadyError):
             raise
-        except Exception as e:  # pragma: no cover - defensive logging for network errors
+        except Exception as e:
             logger.exception("Failed to send loading_start message: %s", e)
             msg = "Failed to send loading_start message"
             raise SaynaConnectionError(msg, cause=e) from e
@@ -1038,7 +1038,7 @@ class SaynaClient:
             await self._send_json(message.model_dump(exclude_none=True))
         except (SaynaNotConnectedError, SaynaNotReadyError):
             raise
-        except Exception as e:  # pragma: no cover - defensive logging for network errors
+        except Exception as e:
             logger.exception("Failed to send loading_stop message: %s", e)
             msg = "Failed to send loading_stop message"
             raise SaynaConnectionError(msg, cause=e) from e

@@ -1,5 +1,10 @@
 import { SaynaClient } from "./sayna-client";
-import type { STTConfig, TTSConfig, LiveKitConfig } from "./types";
+import type {
+  STTConfig,
+  TTSConfig,
+  LiveKitConfig,
+  LoadingAudioConfig,
+} from "./types";
 
 export * from "./sayna-client";
 export * from "./types";
@@ -19,6 +24,10 @@ export * from "./webhook-receiver";
  * @param livekitConfig - Optional LiveKit room configuration
  * @param withoutAudio - If true, disables audio streaming (default: false)
  * @param apiKey - Optional API key used to authorize HTTP and WebSocket calls (defaults to SAYNA_API_KEY env)
+ * @param loadingAudio - Optional loading-indicator clip sent inside the initial `config` frame. The
+ *   server decodes it once at config time and loops it on a dedicated LiveKit audio track when
+ *   `loadingStart()` is invoked. Only effective when `withoutAudio=false` and `livekitConfig` is
+ *   supplied. See the Loading Indicator section of `../sayna/docs/websocket.md` for the protocol contract.
  *
  * @returns Promise that resolves to a connected SaynaClient
  *
@@ -72,7 +81,8 @@ export async function saynaConnect(
   ttsConfig?: TTSConfig,
   livekitConfig?: LiveKitConfig,
   withoutAudio: boolean = false,
-  apiKey?: string
+  apiKey?: string,
+  loadingAudio?: LoadingAudioConfig
 ): Promise<SaynaClient> {
   const client = new SaynaClient(
     url,
@@ -80,7 +90,9 @@ export async function saynaConnect(
     ttsConfig,
     livekitConfig,
     withoutAudio,
-    apiKey
+    apiKey,
+    undefined /* streamId */,
+    loadingAudio
   );
   await client.connect();
   return client;

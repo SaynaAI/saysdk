@@ -39,6 +39,8 @@ await client.connect();
 await client.speak("Hello, world!");
 ```
 
+The constructor also accepts an 8th positional argument `loadingAudio?: LoadingAudioConfig` for a server-side "thinking" audio loop on a dedicated LiveKit track; see [Loading Indicator](#loading-indicator) below.
+
 ## API
 
 ### REST API Methods
@@ -210,15 +212,18 @@ try {
 
 These methods require an active WebSocket connection:
 
-### `new SaynaClient(url, sttConfig, ttsConfig, livekitConfig?, withoutAudio?)`
+### `new SaynaClient(url, sttConfig, ttsConfig, livekitConfig?, withoutAudio?, apiKey?, streamId?, loadingAudio?)`
 
-| parameter       | type            | purpose                                                 |
-| --------------- | --------------- | ------------------------------------------------------- |
-| `url`           | `string`        | Sayna server URL (http://, https://, ws://, or wss://). |
-| `sttConfig`     | `STTConfig`     | Speech-to-text provider configuration.                  |
-| `ttsConfig`     | `TTSConfig`     | Text-to-speech provider configuration.                  |
-| `livekitConfig` | `LiveKitConfig` | Optional LiveKit room configuration.                    |
-| `withoutAudio`  | `boolean`       | Disable audio streaming (defaults to `false`).          |
+| parameter       | type                 | purpose                                                                                                                                                  |
+| --------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`           | `string`             | Sayna server URL (http://, https://, ws://, or wss://).                                                                                                  |
+| `sttConfig`     | `STTConfig`          | Speech-to-text provider configuration.                                                                                                                   |
+| `ttsConfig`     | `TTSConfig`          | Text-to-speech provider configuration.                                                                                                                   |
+| `livekitConfig` | `LiveKitConfig`      | Optional LiveKit room configuration.                                                                                                                     |
+| `withoutAudio`  | `boolean`            | Disable audio streaming (defaults to `false`).                                                                                                           |
+| `apiKey`        | `string`             | Optional API key for HTTP and WebSocket auth (defaults to `SAYNA_API_KEY` env).                                                                          |
+| `streamId`      | `string`             | Optional session identifier for recording paths; server generates a UUID when omitted.                                                                   |
+| `loadingAudio`  | `LoadingAudioConfig` | Optional "thinking" audio clip sent in the initial `config` frame; loops on a dedicated LiveKit track when `loadingStart()` runs. See [Loading Indicator](#loading-indicator). |
 
 ### `await client.connect()`
 
@@ -279,6 +284,77 @@ Sends a message to the Sayna session with role and optional metadata.
 ### `await client.clear()`
 
 Clears the text-to-speech queue.
+
+### Loading Indicator
+
+The loading indicator loops a short audio clip into the LiveKit room while the application is "thinking" (e.g. while a large-language-model call is in flight). The clip is decoded once on the server when the WebSocket `config` frame is sent and replayed seamlessly on a dedicated LiveKit audio track named `"loading-audio"`, which is separate from the speech track `"tts-audio"`. STT and TTS streams are unaffected by the loop. See [`../sayna/docs/websocket.md#loading-indicator`](../sayna/docs/websocket.md#loading-indicator) for the authoritative protocol definition.
+
+The clip is configured through the `LoadingAudioConfig` object passed as the 8th positional argument to the `SaynaClient` constructor:
+
+```typescript
+interface LoadingAudioConfig {
+  /** Base64-encoded WAV or raw 16-bit little-endian PCM. Required. */
+  data: string;
+  /** Container hint; omit to let the server auto-detect from the RIFF/WAVE signature. */
+  format?: "wav" | "pcm";
+  /** Sample rate in Hz. Required for raw PCM; ignored for WAV. */
+  sample_rate?: number;
+  /** Channel count for raw PCM. Defaults to 1 server-side; ignored for WAV. */
+  channels?: 1 | 2;
+  /** Playback volume in [0.0, 1.0]. Defaults to 1.0; clamped server-side. */
+  volume?: number;
+}
+```
+
+The SDK does not read files or decode audio. Encode the clip to base64 in your own application code, e.g. with `fs/promises`:
+
+```typescript
+import { readFile } from "node:fs/promises";
+
+const data = (await readFile("./loading.wav")).toString("base64");
+```
+
+Full call flow:
+
+```typescript
+import { readFile } from "node:fs/promises";
+import { SaynaClient } from "@sayna/node-sdk";
+
+const data = (await readFile("./loading.wav")).toString("base64");
+
+const client = new SaynaClient(
+  "https://api.sayna.ai",
+  { provider: "deepgram", model: "nova-2" },
+  { provider: "cartesia", voice_id: "example-voice" },
+  { room_name: "my-room" },
+  false, // withoutAudio
+  undefined, // apiKey (defaults to SAYNA_API_KEY env)
+  undefined, // streamId
+  { data, format: "wav" } // loadingAudio (8th positional argument)
+);
+
+await client.connect();
+
+// ...on user turn complete:
+client.loadingStart();
+// ...application does its "thinking" (LLM call, tool invocation, etc.)...
+client.loadingStop();
+await client.speak("Here is the answer.");
+```
+
+The application is responsible for calling `loadingStop()` before `speak()`. The SDK and server deliberately do **not** auto-stop the loop on `speak()` or `clear()` — overlapping the indicator with the answer would otherwise play both clips on top of each other.
+
+Failures — `LoadingAudioConfig` decode failures detected at config time, and `loading_start` failures (audio disabled, no LiveKit room, no `loadingAudio` configured, track failed to publish) — arrive on the existing `registerOnError(callback)` channel. There is no separate `loading_error` event.
+
+If the LiveKit room reconnects while the loop was running (publisher timeout, network blip), the loop stops. The SDK does **not** auto-restart it — the application must call `loadingStart()` again to resume.
+
+### `client.loadingStart()`
+
+Begins the server-side seamless playback loop of the configured loading clip on the dedicated `"loading-audio"` LiveKit track. Fire-and-forget: any server-side rejection (audio disabled, no LiveKit room, no `loadingAudio` configured, track failed to publish) arrives asynchronously through `registerOnError(callback)`. Throws `SaynaNotConnectedError` / `SaynaNotReadyError` if invoked before the connection is ready, and `SaynaConnectionError` if the transport fails to send the frame.
+
+### `client.loadingStop()`
+
+Stops the loading-audio loop with a short server-side fade-out. The server never returns an `error` for this command (stopping a non-running loop is a no-op). Throws the same connection-state errors as `loadingStart()`; `disconnect()` does not call it for you.
 
 ### `await client.ttsFlush(allowInterruption?)`
 

@@ -3,9 +3,12 @@ import type {
   STTConfig,
   TTSConfig,
   LiveKitConfig,
+  LoadingAudioConfig,
   ConfigMessage,
   SpeakMessage,
   ClearMessage,
+  LoadingStartMessage,
+  LoadingStopMessage,
   SendMessageMessage,
   ReadyMessage,
   STTResultMessage,
@@ -766,5 +769,106 @@ describe("Provider Auth Types", () => {
 
     const json = JSON.parse(JSON.stringify(config));
     expect(json.auth).toBeUndefined();
+  });
+});
+
+describe("LoadingAudioConfig", () => {
+  test("minimal configuration accepts only data field", () => {
+    const config: LoadingAudioConfig = { data: "AAA=" };
+
+    expect(config.data).toBe("AAA=");
+    expect(config.format).toBeUndefined();
+    expect(config.sample_rate).toBeUndefined();
+    expect(config.channels).toBeUndefined();
+    expect(config.volume).toBeUndefined();
+  });
+
+  test("full configuration accepts all fields", () => {
+    const config: LoadingAudioConfig = {
+      data: "AAA=",
+      format: "pcm",
+      sample_rate: 24000,
+      channels: 2,
+      volume: 0.5,
+    };
+
+    expect(config.data).toBe("AAA=");
+    expect(config.format).toBe("pcm");
+    expect(config.sample_rate).toBe(24000);
+    expect(config.channels).toBe(2);
+    expect(config.volume).toBe(0.5);
+  });
+
+  test("format accepts both wav and pcm literals", () => {
+    const wav: LoadingAudioConfig = { data: "AAA=", format: "wav" };
+    const pcm: LoadingAudioConfig = { data: "AAA=", format: "pcm" };
+
+    expect(wav.format).toBe("wav");
+    expect(pcm.format).toBe("pcm");
+  });
+
+  test("channels accepts both 1 and 2 literals", () => {
+    const mono: LoadingAudioConfig = { data: "AAA=", channels: 1 };
+    const stereo: LoadingAudioConfig = { data: "AAA=", channels: 2 };
+
+    expect(mono.channels).toBe(1);
+    expect(stereo.channels).toBe(2);
+  });
+
+  test("undefined optionals are dropped when JSON.stringify serializes the config", () => {
+    const config: LoadingAudioConfig = { data: "AAA=" };
+
+    const json = JSON.parse(JSON.stringify(config));
+    expect(json.data).toBe("AAA=");
+    expect(Object.prototype.hasOwnProperty.call(json, "format")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(json, "sample_rate")).toBe(
+      false
+    );
+    expect(Object.prototype.hasOwnProperty.call(json, "channels")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(json, "volume")).toBe(false);
+  });
+
+  test("ConfigMessage with loading_audio carries the full nested object", () => {
+    const msg: ConfigMessage = {
+      type: "config",
+      audio: true,
+      loading_audio: {
+        data: "AAA=",
+        format: "wav",
+        sample_rate: 16000,
+        channels: 1,
+        volume: 1.0,
+      },
+    };
+
+    expect(msg.loading_audio?.data).toBe("AAA=");
+    expect(msg.loading_audio?.format).toBe("wav");
+    expect(msg.loading_audio?.sample_rate).toBe(16000);
+    expect(msg.loading_audio?.channels).toBe(1);
+    expect(msg.loading_audio?.volume).toBe(1.0);
+  });
+
+  test("ConfigMessage without loading_audio does NOT contain the key after JSON.stringify", () => {
+    const msg: ConfigMessage = {
+      type: "config",
+      audio: true,
+    };
+
+    const json = JSON.parse(JSON.stringify(msg));
+    expect(json.type).toBe("config");
+    expect(json.audio).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(json, "loading_audio")).toBe(
+      false
+    );
+  });
+
+  test("LoadingStartMessage has fixed loading_start type", () => {
+    const msg: LoadingStartMessage = { type: "loading_start" };
+    expect(msg.type).toBe("loading_start");
+  });
+
+  test("LoadingStopMessage has fixed loading_stop type", () => {
+    const msg: LoadingStopMessage = { type: "loading_stop" };
+    expect(msg.type).toBe("loading_stop");
   });
 });

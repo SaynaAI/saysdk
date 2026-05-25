@@ -153,6 +153,35 @@ export interface LiveKitConfig {
 }
 
 /**
+ * Loading-indicator audio clip uploaded once at config time.
+ *
+ * The clip plays on a dedicated LiveKit audio track when the application sends a
+ * `loading_start` command, and stops with a short server-side fade-out on `loading_stop`.
+ * The SDK does not decode, parse, or validate the audio content; the server is
+ * authoritative on format, sample-rate range, channel count, duration, bit depth, and
+ * byte-size limits. See the "Loading Indicator" section of `../sayna/docs/websocket.md`
+ * and `../sayna/docs/api-reference.md` for the protocol contract.
+ */
+export interface LoadingAudioConfig {
+  /**
+   * Base64-encoded audio bytes (standard alphabet, padded): either a complete WAV file
+   * or raw 16-bit little-endian PCM. Encode in user code, e.g.
+   * `fs.readFile(path).then(b => b.toString('base64'))`. The SDK does not read files or
+   * decode audio. See the Loading Indicator section of `../sayna/docs/websocket.md` for
+   * the authoritative format and size rules.
+   */
+  data: string;
+  /** Audio container hint. Omit to let the server auto-detect from the RIFF/WAVE signature. */
+  format?: "wav" | "pcm";
+  /** Sample rate in Hz (8000-48000). Required for raw PCM; ignored for WAV. */
+  sample_rate?: number;
+  /** Channel count for raw PCM. Defaults to 1 server-side. Ignored for WAV. */
+  channels?: 1 | 2;
+  /** Playback volume in [0.0, 1.0]. Defaults to 1.0; clamped server-side; applied once at config time. */
+  volume?: number;
+}
+
+/**
  * Configuration message sent to initialize the Sayna WebSocket connection.
  * @internal
  */
@@ -168,6 +197,8 @@ export interface ConfigMessage {
   tts_config?: TTSConfig;
   /** Optional LiveKit room configuration */
   livekit?: LiveKitConfig;
+  /** Optional loading-indicator clip; see {@link LoadingAudioConfig}. */
+  loading_audio?: LoadingAudioConfig;
 }
 
 /**
@@ -190,6 +221,22 @@ export interface SpeakMessage {
  */
 export interface ClearMessage {
   type: "clear";
+}
+
+/**
+ * Message to start the loading-indicator audio loop on the dedicated LiveKit track.
+ * @internal
+ */
+export interface LoadingStartMessage {
+  type: "loading_start";
+}
+
+/**
+ * Message to stop the loading-indicator audio loop with a short server-side fade-out.
+ * @internal
+ */
+export interface LoadingStopMessage {
+  type: "loading_stop";
 }
 
 /**

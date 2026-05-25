@@ -15,6 +15,9 @@ from sayna_client.types import (
     LiveKitRoomDetails,
     LiveKitRoomsResponse,
     LiveKitRoomSummary,
+    LoadingAudioConfig,
+    LoadingStartMessage,
+    LoadingStopMessage,
     MuteLiveKitParticipantRequest,
     MuteLiveKitParticipantResponse,
     ParticipantConnectedMessage,
@@ -1069,3 +1072,146 @@ class TestProviderAuth:
         config = TTSConfig(**data)
         assert isinstance(config.auth, GoogleAuth)
         assert config.auth.credentials == "/path/to/creds.json"
+
+
+class TestLoadingAudioConfig:
+    """Tests for LoadingAudioConfig and its integration with ConfigMessage."""
+
+    def test_loading_audio_full_round_trip(self) -> None:
+        """All fields populate as supplied and round-trip through model_dump."""
+        config = LoadingAudioConfig(
+            data="QkFTRTY0",
+            format="wav",
+            sample_rate=24000,
+            channels=2,
+            volume=0.75,
+        )
+        assert config.data == "QkFTRTY0"
+        assert config.format == "wav"
+        assert config.sample_rate == 24000
+        assert config.channels == 2
+        assert config.volume == 0.75
+
+        dump = config.model_dump(exclude_none=True)
+        assert dump == {
+            "data": "QkFTRTY0",
+            "format": "wav",
+            "sample_rate": 24000,
+            "channels": 2,
+            "volume": 0.75,
+        }
+
+        # Round-trip through model_validate to confirm the wire shape is parseable.
+        restored = LoadingAudioConfig.model_validate(dump)
+        assert restored == config
+
+    def test_loading_audio_minimal_round_trip(self) -> None:
+        """Only data is required; exclude_none drops every other field."""
+        config = LoadingAudioConfig(data="QkFTRTY0")
+        assert config.data == "QkFTRTY0"
+        assert config.format is None
+        assert config.sample_rate is None
+        assert config.channels is None
+        assert config.volume is None
+
+        dump = config.model_dump(exclude_none=True)
+        assert dump == {"data": "QkFTRTY0"}
+
+    def test_loading_audio_rejects_non_literal_format(self) -> None:
+        """format only accepts the literal 'wav' or 'pcm'."""
+        with pytest.raises(ValidationError):
+            LoadingAudioConfig(data="QkFTRTY0", format="mp3")  # type: ignore[arg-type]
+
+    def test_loading_audio_rejects_extra_field(self) -> None:
+        """extra='forbid' guards against typos like 'volums' silently passing through."""
+        with pytest.raises(ValidationError):
+            LoadingAudioConfig(data="QkFTRTY0", volums=0.5)  # type: ignore[call-arg]
+
+    def test_loading_audio_embedded_in_config_message(self) -> None:
+        """ConfigMessage.model_dump(exclude_none=True) carries loading_audio when supplied."""
+        stt = STTConfig(
+            provider="deepgram",
+            language="en-US",
+            sample_rate=16000,
+            channels=1,
+            punctuation=True,
+            encoding="linear16",
+            model="nova-2",
+        )
+        tts = TTSConfig(provider="deepgram", model="aura-asteria-en")
+        msg = ConfigMessage(
+            audio=True,
+            stt_config=stt,
+            tts_config=tts,
+            livekit=LiveKitConfig(room_name="test-room"),
+            loading_audio=LoadingAudioConfig(
+                data="QkFTRTY0",
+                format="pcm",
+                sample_rate=16000,
+                channels=1,
+                volume=0.5,
+            ),
+        )
+        dump = msg.model_dump(exclude_none=True)
+        assert "loading_audio" in dump
+        assert dump["loading_audio"] == {
+            "data": "QkFTRTY0",
+            "format": "pcm",
+            "sample_rate": 16000,
+            "channels": 1,
+            "volume": 0.5,
+        }
+
+    def test_loading_audio_omitted_from_config_message(self) -> None:
+        """Existing clients omit loading_audio and the wire payload is unchanged."""
+        stt = STTConfig(
+            provider="deepgram",
+            language="en-US",
+            sample_rate=16000,
+            channels=1,
+            punctuation=True,
+            encoding="linear16",
+            model="nova-2",
+        )
+        tts = TTSConfig(provider="deepgram", model="aura-asteria-en")
+        msg = ConfigMessage(
+            audio=True,
+            stt_config=stt,
+            tts_config=tts,
+        )
+        dump = msg.model_dump(exclude_none=True)
+        assert "loading_audio" not in dump
+
+
+class TestLoadingStartMessage:
+    """Tests for the LoadingStartMessage wire-format model."""
+
+    def test_loading_start_model_dump(self) -> None:
+        """model_dump produces exactly the wire payload."""
+        assert LoadingStartMessage().model_dump() == {"type": "loading_start"}
+
+    def test_loading_start_model_dump_json(self) -> None:
+        """model_dump_json matches the wire payload."""
+        assert LoadingStartMessage().model_dump_json() == '{"type":"loading_start"}'
+
+    def test_loading_start_type_defaults_to_literal(self) -> None:
+        """No-arg construction populates the literal type field."""
+        msg = LoadingStartMessage()
+        assert msg.type == "loading_start"
+
+
+class TestLoadingStopMessage:
+    """Tests for the LoadingStopMessage wire-format model."""
+
+    def test_loading_stop_model_dump(self) -> None:
+        """model_dump produces exactly the wire payload."""
+        assert LoadingStopMessage().model_dump() == {"type": "loading_stop"}
+
+    def test_loading_stop_model_dump_json(self) -> None:
+        """model_dump_json matches the wire payload."""
+        assert LoadingStopMessage().model_dump_json() == '{"type":"loading_stop"}'
+
+    def test_loading_stop_type_defaults_to_literal(self) -> None:
+        """No-arg construction populates the literal type field."""
+        msg = LoadingStopMessage()
+        assert msg.type == "loading_stop"

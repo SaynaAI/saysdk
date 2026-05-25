@@ -161,6 +161,63 @@ class LiveKitConfig(BaseModel):
     )
 
 
+class LoadingAudioConfig(BaseModel):
+    """Loading-indicator audio clip uploaded once at config time.
+
+    The server decodes and validates the clip when the WebSocket session is configured
+    and loops it on a dedicated LiveKit audio track when ``loading_start`` is sent.
+    The SDK does not decode, parse, or validate the audio content; the server is
+    authoritative on format, duration, bit depth, and channel-count limits.
+
+    See ``../sayna/docs/websocket.md`` ("Loading Indicator" section) and
+    ``../sayna/docs/api-reference.md`` for the protocol contract.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    data: str = Field(
+        ...,
+        description=(
+            "Base64-encoded audio bytes (standard alphabet, padded): either a complete WAV file "
+            "or raw 16-bit little-endian PCM. Encode in user code, e.g. "
+            'base64.b64encode(open(path, "rb").read()).decode("ascii"). The SDK does not read '
+            "files or decode audio. See the Loading Indicator section of "
+            "../sayna/docs/websocket.md for the authoritative format rules."
+        ),
+    )
+    format: Optional[Literal["wav", "pcm"]] = Field(
+        default=None,
+        description=(
+            "Audio container hint. Omit to let the server auto-detect from the RIFF/WAVE "
+            "signature. Only 'wav' or 'pcm' are accepted; any other value is rejected by the "
+            "server with an error message."
+        ),
+    )
+    sample_rate: Optional[int] = Field(
+        default=None,
+        description=(
+            "Sample rate in Hz (8000-48000). Required for raw PCM (no header is present); "
+            "ignored for WAV (the header is authoritative). The server is authoritative on the "
+            "accepted range."
+        ),
+    )
+    channels: Optional[int] = Field(
+        default=None,
+        description=(
+            "Channel count for raw PCM. Current values are 1 (mono) or 2 (stereo); defaults to 1 "
+            "server-side. Ignored for WAV. The server is authoritative on accepted values."
+        ),
+    )
+    volume: Optional[float] = Field(
+        default=None,
+        description=(
+            "Playback volume in [0.0, 1.0]. Out-of-range values are clamped by the server "
+            "(not rejected). Applied once at config time as amplitude scaling; there is no "
+            "runtime volume control."
+        ),
+    )
+
+
 # ============================================================================
 # Outgoing Messages (Client -> Server)
 # ============================================================================
@@ -183,6 +240,14 @@ class ConfigMessage(BaseModel):
     )
     livekit: Optional[LiveKitConfig] = Field(
         default=None, description="Optional LiveKit room configuration"
+    )
+    loading_audio: Optional[LoadingAudioConfig] = Field(
+        default=None,
+        description=(
+            "Optional loading-indicator clip; the server decodes once at config time. "
+            "Processed only when audio=True and a livekit config is present. Decode failure is "
+            "non-fatal -- the server emits a single error message and continues."
+        ),
     )
 
 
@@ -226,6 +291,18 @@ class SipTransferMessage(BaseModel):
             "or internal extensions. LiveKit must be configured and an active SIP participant must exist."
         ),
     )
+
+
+class LoadingStartMessage(BaseModel):
+    """Message to start the loading-indicator audio loop on the dedicated LiveKit track."""
+
+    type: Literal["loading_start"] = "loading_start"
+
+
+class LoadingStopMessage(BaseModel):
+    """Message to stop the loading-indicator audio loop with a short server-side fade-out."""
+
+    type: Literal["loading_stop"] = "loading_stop"
 
 
 # ============================================================================

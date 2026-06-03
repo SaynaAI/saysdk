@@ -61,7 +61,7 @@ const client = new SaynaClient({
 
 Either `tokenUrl` or `tokenFetchHandler` is required when creating a client.
 
-### `await client.connect(options?)`
+### `await client.connect()`
 
 Connects to the voice room using the token response from `tokenUrl`. Resolves to the underlying room instance.
 

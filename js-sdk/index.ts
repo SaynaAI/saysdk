@@ -31,8 +31,11 @@ export class SaynaClient {
   private readonly enableAudioPlayback: boolean;
   private isConnecting = false;
   private audioElement: HTMLAudioElement | null;
-  private createdAudioElement = false;
-  private readonly attachedAudioTracks = new Set<RemoteTrack>();
+  private readonly attachedAudioTrackElements = new Map<
+    RemoteTrack,
+    HTMLAudioElement
+  >();
+  private readonly ownedAudioElements = new Set<HTMLAudioElement>();
 
   private readonly handleTrackSubscribed = (
     track: RemoteTrack,
@@ -43,20 +46,28 @@ export class SaynaClient {
       return;
     }
 
-    const element = this.ensureAudioElement();
+    const element = this.getAudioElementForTrack(track);
     if (!element) {
       return;
     }
 
     track.attach(element);
-    this.attachedAudioTracks.add(track);
+    this.attachedAudioTrackElements.set(track, element);
   };
 
   private readonly handleTrackUnsubscribed = (track: RemoteTrack) => {
-    if (track.kind === "audio" && this.attachedAudioTracks.has(track)) {
-      track.detach();
-      this.attachedAudioTracks.delete(track);
+    if (track.kind !== "audio") {
+      return;
     }
+
+    const element = this.attachedAudioTrackElements.get(track);
+    if (!element) {
+      return;
+    }
+
+    track.detach(element);
+    this.attachedAudioTrackElements.delete(track);
+    this.releaseAudioElement(element);
   };
 
   private readonly handleRoomDisconnected = () => {
@@ -125,7 +136,7 @@ export class SaynaClient {
       const tokenResponse = await this.resolveToken();
 
       if (this.enableAudioPlayback) {
-        this.ensureAudioElement();
+        this.ensurePrimaryAudioElement();
       }
 
       await room.connect(
@@ -224,36 +235,71 @@ export class SaynaClient {
     return tokenResponse;
   }
 
-  private ensureAudioElement(): HTMLAudioElement | null {
+  private ensurePrimaryAudioElement(): HTMLAudioElement | null {
     if (!this.enableAudioPlayback) {
       return null;
     }
 
     if (!this.audioElement) {
-      if (typeof document !== "undefined" && document.createElement) {
-        this.audioElement = document.createElement("audio");
-        this.audioElement.autoplay = true;
-        this.createdAudioElement = true;
-      } else if (typeof Audio !== "undefined") {
-        this.audioElement = new Audio();
-        this.audioElement.autoplay = true;
-        this.createdAudioElement = true;
-      } else {
-        return null;
-      }
+      this.audioElement = this.createOwnedAudioElement();
     }
 
     return this.audioElement;
   }
 
-  private detachAllTracks(): void {
-    for (const track of this.attachedAudioTracks) {
-      track.detach();
-    }
-    this.attachedAudioTracks.clear();
+  private createOwnedAudioElement(): HTMLAudioElement {
+    const element = document.createElement("audio");
+    element.autoplay = true;
+    element.hidden = true;
+    this.ownedAudioElements.add(element);
+    return element;
+  }
 
-    if (this.createdAudioElement && this.audioElement) {
-      this.audioElement.srcObject = null;
+  private getAudioElementForTrack(track: RemoteTrack): HTMLAudioElement | null {
+    const existingElement = this.attachedAudioTrackElements.get(track);
+    if (existingElement) {
+      return existingElement;
+    }
+
+    const primaryElement = this.ensurePrimaryAudioElement();
+    if (!primaryElement) {
+      return null;
+    }
+
+    for (const activeElement of this.attachedAudioTrackElements.values()) {
+      if (activeElement === primaryElement) {
+        return this.createOwnedAudioElement();
+      }
+    }
+
+    return primaryElement;
+  }
+
+  private releaseAudioElement(element: HTMLAudioElement): void {
+    if (element === this.audioElement || !this.ownedAudioElements.has(element)) {
+      return;
+    }
+
+    this.clearAudioElement(element);
+    this.ownedAudioElements.delete(element);
+  }
+
+  private clearAudioElement(element: HTMLAudioElement): void {
+    element.pause();
+    element.srcObject = null;
+  }
+
+  private detachAllTracks(): void {
+    for (const [track, element] of this.attachedAudioTrackElements) {
+      track.detach(element);
+    }
+    this.attachedAudioTrackElements.clear();
+
+    for (const element of Array.from(this.ownedAudioElements)) {
+      this.clearAudioElement(element);
+      if (element !== this.audioElement) {
+        this.ownedAudioElements.delete(element);
+      }
     }
   }
 

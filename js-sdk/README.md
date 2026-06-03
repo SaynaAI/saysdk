@@ -6,7 +6,7 @@
 
 - Automatic token retrieval with simple configuration
 - Room lifecycle helpers to connect, publish audio, and disconnect
-- Built-in remote audio playback via a provided or auto-created `<audio>` element
+- Built-in playback for multiple simultaneous remote audio tracks
 - Works with any framework (or none); no JSX or React dependencies
 
 ## Installation
@@ -54,7 +54,7 @@ const client = new SaynaClient({
 | --- | --- | --- |
 | `tokenUrl` | `string \| URL` | Endpoint used to retrieve access tokens; relative paths resolve against `window.location`. |
 | `tokenFetchHandler` | `() => Promise<TokenResponse>` | Custom function used to fetch tokens. Overrides `tokenUrl` when provided. |
-| `audioElement` | `HTMLAudioElement` | Existing element to attach remote audio playback. |
+| `audioElement` | `HTMLAudioElement` | Existing primary element for remote audio playback. The first active remote track uses this element; additional simultaneous tracks use SDK-created hidden audio elements. |
 | `enableAudioPlayback` | `boolean` | Toggle automatic playback support (defaults to `true`). |
 
 `TokenResponse` must include a `token` string and a `liveUrl` string provided by your backend.
@@ -83,7 +83,7 @@ Boolean that reflects whether the room is connected.
 
 ### `client.playbackElement`
 
-Returns the `HTMLAudioElement` used for remote audio playback (auto-created when needed).
+Returns the primary `HTMLAudioElement` used for remote audio playback (auto-created when needed). Automatic playback supports multiple simultaneous remote audio tracks; the primary element is used for the first active track and additional active tracks use SDK-created hidden audio elements.
 
 ## Development
 
